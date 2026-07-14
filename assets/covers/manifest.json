@@ -1,0 +1,27 @@
+{
+  "tenacious_d_rize_of_the_fenix": {
+    "ok": true,
+    "outputs": {
+      "source": "assets/covers/source/tenacious_d_rize_of_the_fenix.jpg",
+      "preview_16color": "assets/covers/preview/tenacious_d_rize_of_the_fenix_16color_512.png",
+      "mono_48": "assets/covers/lcd/tenacious_d_rize_of_the_fenix_48x48_mono.png",
+      "mono_48_preview": "assets/covers/preview/tenacious_d_rize_of_the_fenix_48x48_mono_preview.png",
+      "mono_64": "assets/covers/lcd/tenacious_d_rize_of_the_fenix_64x64_mono.png",
+      "mono_64_preview": "assets/covers/preview/tenacious_d_rize_of_the_fenix_64x64_mono_preview.png"
+    },
+    "playlist": {
+      "name": "Bench Test",
+      "slug": "Bench_Test",
+      "filename": "Bench_Test.m3u8",
+      "format": "m3u8",
+      "cover": "../assets/covers/source/tenacious_d_rize_of_the_fenix.jpg",
+      "cover_lcd": "../assets/covers/lcd/tenacious_d_rize_of_the_fenix_48x48_mono.png",
+      "cover_lcd_path": "D:\\Apps\\Player\\assets\\covers\\lcd\\tenacious_d_rize_of_the_fenix_48x48_mono.png",
+      "track_ids": [
+        "34fe9f281a3bc674",
+        "5d13fcb39d24a66a",
+        "f82db1a8a385d135"
+      ]
+    }
+  }
+}

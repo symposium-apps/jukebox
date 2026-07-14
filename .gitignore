@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+library/*
+!library/.gitkeep
+playlists/*
+!playlists/.gitkeep
+state.json
+wristdeck.log
+node_modules/
+.desktop/

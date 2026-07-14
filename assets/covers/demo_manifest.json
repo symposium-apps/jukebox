@@ -1,0 +1,152 @@
+{
+  "the_beatles_abbey_road": {
+    "artist": "The Beatles",
+    "title": "Abbey Road",
+    "release_group_id": "9162580e-5df4-32de-80cc-f45a8d8a9b1d",
+    "cover_archive": "https://coverartarchive.org/release-group/9162580e-5df4-32de-80cc-f45a8d8a9b1d",
+    "outputs": {
+      "source": "assets/covers/source/the_beatles_abbey_road.jpg",
+      "preview_16color": "assets/covers/preview/the_beatles_abbey_road_16color_512.png",
+      "mono_48": "assets/covers/lcd/the_beatles_abbey_road_48x48_mono.png",
+      "mono_48_preview": "assets/covers/preview/the_beatles_abbey_road_48x48_mono_preview.png",
+      "mono_64": "assets/covers/lcd/the_beatles_abbey_road_64x64_mono.png",
+      "mono_64_preview": "assets/covers/preview/the_beatles_abbey_road_64x64_mono_preview.png"
+    },
+    "playlist": {
+      "name": "The Beatles - Abbey Road",
+      "slug": "the_beatles_abbey_road",
+      "filename": "the_beatles_abbey_road.m3u8",
+      "format": "m3u8",
+      "cover": "../assets/covers/source/the_beatles_abbey_road.jpg",
+      "cover_lcd": "../assets/covers/lcd/the_beatles_abbey_road_48x48_mono.png",
+      "cover_lcd_path": "D:\\Apps\\Player\\assets\\covers\\lcd\\the_beatles_abbey_road_48x48_mono.png",
+      "track_ids": [
+        "fe9e8fedfcbeb2b7",
+        "72a964f84807deab",
+        "031162f2098161a3",
+        "5f332507dd9f8701",
+        "4f309bd21ade00b5"
+      ]
+    }
+  },
+  "pink_floyd_dark_side_of_the_moon": {
+    "artist": "Pink Floyd",
+    "title": "The Dark Side of the Moon",
+    "release_group_id": "f5093c06-23e3-404f-aeaa-40f72885ee3a",
+    "cover_archive": "https://coverartarchive.org/release-group/f5093c06-23e3-404f-aeaa-40f72885ee3a",
+    "outputs": {
+      "source": "assets/covers/source/pink_floyd_dark_side_of_the_moon.jpg",
+      "preview_16color": "assets/covers/preview/pink_floyd_dark_side_of_the_moon_16color_512.png",
+      "mono_48": "assets/covers/lcd/pink_floyd_dark_side_of_the_moon_48x48_mono.png",
+      "mono_48_preview": "assets/covers/preview/pink_floyd_dark_side_of_the_moon_48x48_mono_preview.png",
+      "mono_64": "assets/covers/lcd/pink_floyd_dark_side_of_the_moon_64x64_mono.png",
+      "mono_64_preview": "assets/covers/preview/pink_floyd_dark_side_of_the_moon_64x64_mono_preview.png"
+    },
+    "playlist": {
+      "name": "Pink Floyd - The Dark Side of the Moon",
+      "slug": "pink_floyd_dark_side_of_the_moon",
+      "filename": "pink_floyd_dark_side_of_the_moon.m3u8",
+      "format": "m3u8",
+      "cover": "../assets/covers/source/pink_floyd_dark_side_of_the_moon.jpg",
+      "cover_lcd": "../assets/covers/lcd/pink_floyd_dark_side_of_the_moon_48x48_mono.png",
+      "cover_lcd_path": "D:\\Apps\\Player\\assets\\covers\\lcd\\pink_floyd_dark_side_of_the_moon_48x48_mono.png",
+      "track_ids": [
+        "b9565e4a88f9542a",
+        "7778f2010c7086f9",
+        "ea40d3b6a5aaf28b",
+        "dbdbfa842bdd4b3b",
+        "f4925237b5360ca0"
+      ]
+    }
+  },
+  "michael_jackson_thriller": {
+    "artist": "Michael Jackson",
+    "title": "Thriller",
+    "release_group_id": "f32fab67-77dd-3937-addc-9062e28e4c37",
+    "cover_archive": "https://coverartarchive.org/release-group/f32fab67-77dd-3937-addc-9062e28e4c37",
+    "outputs": {
+      "source": "assets/covers/source/michael_jackson_thriller.jpg",
+      "preview_16color": "assets/covers/preview/michael_jackson_thriller_16color_512.png",
+      "mono_48": "assets/covers/lcd/michael_jackson_thriller_48x48_mono.png",
+      "mono_48_preview": "assets/covers/preview/michael_jackson_thriller_48x48_mono_preview.png",
+      "mono_64": "assets/covers/lcd/michael_jackson_thriller_64x64_mono.png",
+      "mono_64_preview": "assets/covers/preview/michael_jackson_thriller_64x64_mono_preview.png"
+    },
+    "playlist": {
+      "name": "Michael Jackson - Thriller",
+      "slug": "michael_jackson_thriller",
+      "filename": "michael_jackson_thriller.m3u8",
+      "format": "m3u8",
+      "cover": "../assets/covers/source/michael_jackson_thriller.jpg",
+      "cover_lcd": "../assets/covers/lcd/michael_jackson_thriller_48x48_mono.png",
+      "cover_lcd_path": "D:\\Apps\\Player\\assets\\covers\\lcd\\michael_jackson_thriller_48x48_mono.png",
+      "track_ids": [
+        "1024a5502e99a7c7",
+        "9141611dadb8691c",
+        "c669d580d5c0ae85",
+        "7fefa7170f386ff7",
+        "467a118ffe899277"
+      ]
+    }
+  },
+  "nirvana_nevermind": {
+    "artist": "Nirvana",
+    "title": "Nevermind",
+    "release_group_id": "1b022e01-4da6-387b-8658-8678046e4cef",
+    "cover_archive": "https://coverartarchive.org/release-group/1b022e01-4da6-387b-8658-8678046e4cef",
+    "outputs": {
+      "source": "assets/covers/source/nirvana_nevermind.jpg",
+      "preview_16color": "assets/covers/preview/nirvana_nevermind_16color_512.png",
+      "mono_48": "assets/covers/lcd/nirvana_nevermind_48x48_mono.png",
+      "mono_48_preview": "assets/covers/preview/nirvana_nevermind_48x48_mono_preview.png",
+      "mono_64": "assets/covers/lcd/nirvana_nevermind_64x64_mono.png",
+      "mono_64_preview": "assets/covers/preview/nirvana_nevermind_64x64_mono_preview.png"
+    },
+    "playlist": {
+      "name": "Nirvana - Nevermind",
+      "slug": "nirvana_nevermind",
+      "filename": "nirvana_nevermind.m3u8",
+      "format": "m3u8",
+      "cover": "../assets/covers/source/nirvana_nevermind.jpg",
+      "cover_lcd": "../assets/covers/lcd/nirvana_nevermind_48x48_mono.png",
+      "cover_lcd_path": "D:\\Apps\\Player\\assets\\covers\\lcd\\nirvana_nevermind_48x48_mono.png",
+      "track_ids": [
+        "f824a8822683eb1a",
+        "dc3ccc46b6adde33",
+        "75ae17d737ff7972",
+        "92cb293c9bd24b55",
+        "929a41756ef09086"
+      ]
+    }
+  },
+  "fleetwood_mac_rumours": {
+    "artist": "Fleetwood Mac",
+    "title": "Rumours",
+    "release_group_id": "416bb5e5-c7d1-3977-8fd7-7c9daf6c2be6",
+    "cover_archive": "https://coverartarchive.org/release-group/416bb5e5-c7d1-3977-8fd7-7c9daf6c2be6",
+    "outputs": {
+      "source": "assets/covers/source/fleetwood_mac_rumours.jpg",
+      "preview_16color": "assets/covers/preview/fleetwood_mac_rumours_16color_512.png",
+      "mono_48": "assets/covers/lcd/fleetwood_mac_rumours_48x48_mono.png",
+      "mono_48_preview": "assets/covers/preview/fleetwood_mac_rumours_48x48_mono_preview.png",
+      "mono_64": "assets/covers/lcd/fleetwood_mac_rumours_64x64_mono.png",
+      "mono_64_preview": "assets/covers/preview/fleetwood_mac_rumours_64x64_mono_preview.png"
+    },
+    "playlist": {
+      "name": "Fleetwood Mac - Rumours",
+      "slug": "fleetwood_mac_rumours",
+      "filename": "fleetwood_mac_rumours.m3u8",
+      "format": "m3u8",
+      "cover": "../assets/covers/source/fleetwood_mac_rumours.jpg",
+      "cover_lcd": "../assets/covers/lcd/fleetwood_mac_rumours_48x48_mono.png",
+      "cover_lcd_path": "D:\\Apps\\Player\\assets\\covers\\lcd\\fleetwood_mac_rumours_48x48_mono.png",
+      "track_ids": [
+        "7132a2b10867d1b0",
+        "8cf24e252630473f",
+        "74db9d79e5aeb8c9",
+        "6c600281041d0146",
+        "b18e8b44b8ec6077"
+      ]
+    }
+  }
+}
