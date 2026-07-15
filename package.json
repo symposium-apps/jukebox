@@ -1,6 +1,6 @@
 {
   "name": "player-python",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "SYM music player with an app-scoped library, playlists, and browser controls.",
   "homepage": "https://github.com/symposium-apps/player-python#readme",

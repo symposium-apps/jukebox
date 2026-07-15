@@ -9,9 +9,9 @@ Install **Player** from the SYM-OS App Store. SYM-Node owns installation, port a
 After installation:
 
 1. Open Player in SYM-OS.
-2. Open `/manage` for the full library manager.
+2. The main `/` page is the full library manager.
 3. Use **Upload**, **Folder**, or drag and drop to add music.
-4. Use `/` for the device-style player controls.
+4. Use `/mini-sym` for the compact device-style player controls.
 
 Player accepts MP3, M4A, AAC, OGG, WAV, and FLAC audio. Album artwork can be uploaded as JPG, PNG, or WebP.
 
@@ -33,7 +33,7 @@ The managed data layout is:
 └── state.json     # Player state
 ```
 
-The app creates these directories automatically. Upload music through `/manage`; do not copy files into another profile, `/Users`, `/home/samos`, or a shared top-level library.
+The app creates these directories automatically. Upload music through the main page (`/` or the backwards-compatible `/manage` route); do not copy files into another profile, `/Users`, `/home/samos`, or a shared top-level library.
 
 The manifest declares `.sym-data` as persistent app data so it remains app-scoped across managed restarts and updates.
 
@@ -45,7 +45,8 @@ Player:
 - reads `HOST` when supplied by SYM-Node;
 - defaults storage to `<app-root>/.sym-data`;
 - exposes `GET /_sym/health` for managed health checks;
-- exposes `GET /mini-sym` for the compact Sym Browser viewer;
+- serves the full library manager at `/` and `/manage`;
+- serves the device-style player controls at `/mini-sym` for the Sym Browser viewer;
 - starts through the committed `package.json` and `package-lock.json` contract.
 
 The npm start command launches the Python standard-library server. The core web app has no third-party Python package dependency.

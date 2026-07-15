@@ -1771,7 +1771,7 @@ def manage_page() -> str:
     return Path(__file__).with_name("manage.html").read_text(encoding="utf-8")
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Player/0.1.0"
+    server_version = f"Player/{__version__}"
 
     def log_message(self, fmt: str, *args: object) -> None:
         print(f"[{self.log_date_time_string()}] {self.address_string()} {fmt % args}")
@@ -1803,7 +1803,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             if parsed.path == "/":
-                self.send_html(html_page())
+                self.send_html(manage_page())
             elif parsed.path == "/manage":
                 self.send_html(manage_page())
             elif parsed.path == "/api/screen":
@@ -1813,7 +1813,7 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == "/_sym/health":
                 self.send_json({"ok": True, "status": "healthy", "version": __version__})
             elif parsed.path == "/mini-sym":
-                self.send_html(mini_sym_page())
+                self.send_html(html_page())
             elif parsed.path == "/api/reset":
                 self.send_json(reset_player_state())
             elif parsed.path == "/api/display/reinit":

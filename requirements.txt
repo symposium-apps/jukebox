@@ -1,4 +1,4 @@
-# Player 0.1.1 uses only Python standard-library modules for the core web app.
+# Player 0.1.2 uses only Python standard-library modules for the core web app.
 # Install mpv on the Raspberry Pi for real audio output:
 #   sudo apt update && sudo apt install -y mpv
 #
