@@ -1,101 +1,68 @@
 # Player
 
-Version: 0.1.0
+Player is a SYM music player with a browser-based library manager, playlists, playback controls, and an optional compact `/mini-sym` status view.
 
-Player is the first practical module for the suit: a Raspberry Pi hosted MP3 player with a WiFi control panel, local music storage, playlists, OLED/LCD status, and hardware-control headroom.
+## Install in SYM
 
-## What 0.1.0 Does
+Install **Player** from the SYM-OS App Store. SYM-Node owns installation, port allocation, start/restart, and the public app URL. Do not manually start a second server or configure a fixed port.
 
-- Hosts a control panel on the Raspberry Pi.
-- Uploads MP3 files into a local `library/` folder.
-- Scans the local music library.
-- Plays audio through the Pi using `mpv`.
-- Supports play, pause, stop, next, previous, and volume.
-- Saves simple playlists as JSON files.
+After installation:
 
-## Run Locally
+1. Open Player in SYM-OS.
+2. Open `/manage` for the full library manager.
+3. Use **Upload**, **Folder**, or drag and drop to add music.
+4. Use `/` for the device-style player controls.
 
-```powershell
-cd D:\Apps\Player
-python -m player.server --host 127.0.0.1 --port 8010
-```
+Player accepts MP3, M4A, AAC, OGG, WAV, and FLAC audio. Album artwork can be uploaded as JPG, PNG, or WebP.
 
-Open:
+## App-owned storage
+
+Player keeps uploaded music and runtime state inside its own app folder:
 
 ```text
-http://127.0.0.1:8010
+$HOME/project_files/Apps/player-python/.sym-data/
 ```
 
-The device-style LCD controller lives at `/`. The full library manager for uploads,
-playlists, and bench testing lives at `/manage`.
-
-## Run On Windows As Player Desktop
-
-Double-click:
+The managed data layout is:
 
 ```text
-Player Desktop.cmd
+.sym-data/
+├── library/       # Uploaded music and album artwork
+├── playlists/     # Saved playlists
+├── assets/        # Generated/runtime artwork
+└── state.json     # Player state
 ```
 
-This starts Player on `http://127.0.0.1:8020/manage` using:
+The app creates these directories automatically. Upload music through `/manage`; do not copy files into another profile, `/Users`, `/home/samos`, or a shared top-level library.
 
-```text
-C:\Users\<you>\Downloads\Player
-```
+The manifest declares `.sym-data` as persistent app data so it remains app-scoped across managed restarts and updates.
 
-as the local music library.
+## Managed runtime contract
 
-Player stores playlists, generated cover art, and desktop state inside:
+Player:
 
-```text
-C:\Users\<you>\Downloads\Player\.player
-```
+- reads its assigned port from `PORT`;
+- reads `HOST` when supplied by SYM-Node;
+- defaults storage to `<app-root>/.sym-data`;
+- exposes `GET /_sym/health` for managed health checks;
+- exposes `GET /mini-sym` for the compact Sym Browser viewer;
+- starts through the committed `package.json` and `package-lock.json` contract.
 
-That keeps the Windows player library in one portable folder: albums plus Player metadata.
+The npm start command launches the Python standard-library server. The core web app has no third-party Python package dependency.
 
-The desktop launcher starts the Python server and opens `/manage` in your default
-browser. Audio plays in the browser itself (via the server's `/media/` route), so no
-extra runtime is needed on Windows.
+## Optional hardware audio
 
-## Raspberry Pi Audio Backend
+Browser playback works without a host audio backend. On hardware that has `mpv` installed, Player can also use `mpv` for host audio output. OLED/LCD support is optional and depends on the target device.
 
-Install `mpv` on the Pi:
+These hardware integrations are not required for installation from the SYM App Store.
+
+## Development checks
+
+Run finite checks only; do not leave a manual server running beside the SYM-managed instance.
 
 ```bash
-sudo apt update
-sudo apt install -y mpv
+npm ci
+python3 -m compileall -q player
 ```
 
-Then run:
-
-```bash
-cd /home/samos/apps/Player
-python3 -m player.server --host 0.0.0.0 --port 8010
-```
-
-## Systemd Service
-
-Copy `scripts/player.service` to:
-
-```bash
-sudo cp scripts/player.service /etc/systemd/system/player.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now player.service
-```
-
-Then open:
-
-```text
-http://<pi-ip>:8010
-```
-
-## Deploy From Windows
-
-From this folder:
-
-```powershell
-$env:BUGGY_PASS='your-pi-password'
-python .\scripts\deploy_to_pi.py --host 192.168.0.153 --install-service --install-mpv --install-display-deps
-```
-
-The deploy script uploads code only. It leaves the Pi's `library/` and `playlists/` folders alone.
+For managed start or restart, use SYM-Node's profile-scoped app lifecycle action.

@@ -1,7 +1,7 @@
 [project]
 name = "player"
-version = "0.1.0"
-description = "Wearable Raspberry Pi MP3 player and suit control module."
+version = "0.1.1"
+description = "SYM music player with an app-scoped library and browser controls."
 requires-python = ">=3.11"
 dependencies = []
 

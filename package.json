@@ -1,8 +1,8 @@
 {
   "name": "player-python",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
-  "description": "Raspberry Pi hosted MP3 player with a WiFi control panel, local library, playlists, and OLED/LCD status.",
+  "description": "SYM music player with an app-scoped library, playlists, and browser controls.",
   "homepage": "https://github.com/symposium-apps/player-python#readme",
   "scripts": {
     "start": "python3 -m player.server"
