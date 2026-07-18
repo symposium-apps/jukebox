@@ -54,7 +54,7 @@ DEFAULT_STATE = {
 }
 
 
-HOME = Path(os.environ.get("JUKEBOX_HOME") or os.environ.get("SYM_APP_DATA_DIR") or Path.cwd() / ".sym-data").resolve()
+HOME = Path(os.environ.get("JUKEBOX_HOME") or os.environ.get("SYM_APP_STATE_DIR") or os.environ.get("SYM_APP_DATA_DIR") or Path.cwd() / ".sym-data").resolve()
 USER_DATA = Path(os.environ.get("SYM_APP_USER_DATA_DIR", HOME)).resolve()
 LIBRARY_DIR = Path(os.environ.get("JUKEBOX_LIBRARY", USER_DATA / "Music")).resolve()
 PLAYLIST_DIR = Path(os.environ.get("JUKEBOX_PLAYLISTS", USER_DATA / "Playlists")).resolve()
