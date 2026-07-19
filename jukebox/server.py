@@ -69,7 +69,8 @@ API_README_FILE = API_CONFIG_DIR / "README.txt"
 API_MAX_UPLOAD_BYTES = int(os.environ.get("JUKEBOX_API_MAX_UPLOAD_BYTES", str(4 * 1024 * 1024 * 1024)))
 USER_DATA_QUOTA_BYTES = int(os.environ.get("JUKEBOX_USER_DATA_QUOTA_BYTES", str(50 * 1024 * 1024 * 1024)))
 SESSION_COOKIE = "jukebox_session"
-SESSION_TTL_SECONDS = 12 * 60 * 60
+SESSION_TTL_SECONDS = 180 * 24 * 60 * 60
+SESSION_KEY_FILE = HOME / "browser-session.key"
 APP_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 APP_ICON_PATH = APP_ASSETS_DIR / "icon.svg"
 BROWSER_ICON_PATHS = {
@@ -94,7 +95,7 @@ LIBRARY_CACHE_TTL = 3600.0
 STORAGE_CACHE: dict[str, object] | None = None
 STORAGE_CACHE_EXPIRES = 0.0
 STORAGE_CACHE_TTL = 3600.0
-AUTH_SESSIONS: dict[str, tuple[float, str]] = {}
+SESSION_SECRET_CACHE: bytes | None = None
 AUTH_FAILURES: dict[str, list[float]] = {}
 HOME_FOCUS_ACTIONS = {
     0: "menu",
@@ -196,14 +197,14 @@ def session_token(headers: object) -> str:
 def session_is_valid(token: str, password: str) -> bool:
     if not token or not password:
         return False
-    now = time.time()
-    fingerprint = password_fingerprint(password)
-    with LOCK:
-        expired = [key for key, (expires, _) in AUTH_SESSIONS.items() if expires <= now]
-        for key in expired:
-            AUTH_SESSIONS.pop(key, None)
-        record = AUTH_SESSIONS.get(token)
-    return bool(record and record[0] > now and hmac.compare_digest(record[1], fingerprint))
+    expires_text, separator, signature = token.partition(".")
+    if not separator or not expires_text.isdigit() or len(signature) != 64:
+        return False
+    expires = int(expires_text)
+    if expires <= int(time.time()):
+        return False
+    expected = browser_session_signature(expires, password)
+    return hmac.compare_digest(signature, expected)
 
 
 def request_is_authenticated(headers: object) -> bool:
@@ -213,11 +214,38 @@ def request_is_authenticated(headers: object) -> bool:
     return passwords_match(bearer_password(headers), password) or session_is_valid(session_token(headers), password)
 
 
-def create_browser_session(password: str) -> str:
-    token = secrets.token_urlsafe(32)
+def browser_session_secret() -> bytes:
+    global SESSION_SECRET_CACHE
     with LOCK:
-        AUTH_SESSIONS[token] = (time.time() + SESSION_TTL_SECONDS, password_fingerprint(password))
-    return token
+        if SESSION_SECRET_CACHE:
+            return SESSION_SECRET_CACHE
+        try:
+            secret = bytes.fromhex(SESSION_KEY_FILE.read_text(encoding="ascii").strip())
+        except (OSError, ValueError):
+            secret = b""
+        if len(secret) != 32:
+            secret = secrets.token_bytes(32)
+            SESSION_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            temporary = SESSION_KEY_FILE.with_name(f".{SESSION_KEY_FILE.name}.{uuid.uuid4().hex}.tmp")
+            temporary.write_text(secret.hex(), encoding="ascii")
+            temporary.chmod(0o600)
+            os.replace(temporary, SESSION_KEY_FILE)
+        try:
+            SESSION_KEY_FILE.chmod(0o600)
+        except OSError:
+            pass
+        SESSION_SECRET_CACHE = secret
+        return secret
+
+
+def browser_session_signature(expires: int, password: str) -> str:
+    message = f"{expires}\n{password_fingerprint(password)}".encode("ascii")
+    return hmac.new(browser_session_secret(), message, hashlib.sha256).hexdigest()
+
+
+def create_browser_session(password: str) -> str:
+    expires = int(time.time()) + SESSION_TTL_SECONDS
+    return f"{expires}.{browser_session_signature(expires, password)}"
 
 
 def login_gate(error: bool = False) -> str:
@@ -2188,10 +2216,10 @@ class Handler(BaseHTTPRequestHandler):
             AUTH_FAILURES.pop(address, None)
         token = create_browser_session(expected)
         forwarded_proto = self.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().casefold()
-        secure = "; Secure" if forwarded_proto == "https" else ""
+        cookie_policy = "; SameSite=None; Secure; Partitioned" if forwarded_proto == "https" else "; SameSite=Lax"
         self.send_response(HTTPStatus.SEE_OTHER)
         self.send_header("Location", "/")
-        self.send_header("Set-Cookie", f"{SESSION_COOKIE}={token}; Path=/; Max-Age={SESSION_TTL_SECONDS}; HttpOnly; SameSite=Strict{secure}")
+        self.send_header("Set-Cookie", f"{SESSION_COOKIE}={token}; Path=/; Max-Age={SESSION_TTL_SECONDS}; HttpOnly{cookie_policy}")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
 

@@ -130,8 +130,12 @@ class ManagementApiTest(unittest.TestCase):
         self.assertEqual((api_dir / "password.txt").stat().st_mode & 0o777, 0o600)
 
         form = urllib.parse.urlencode({"password": PASSWORD})
-        status, headers, _ = self.request("POST", "/auth/login", form, {"Content-Type": "application/x-www-form-urlencoded"})
+        status, headers, _ = self.request("POST", "/auth/login", form, {"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-Proto": "https"})
         self.assertEqual(status, 303)
+        self.assertIn("HttpOnly", headers["Set-Cookie"])
+        self.assertIn("SameSite=None", headers["Set-Cookie"])
+        self.assertIn("Secure", headers["Set-Cookie"])
+        self.assertIn("Partitioned", headers["Set-Cookie"])
         cookie = headers["Set-Cookie"].split(";", 1)[0]
         self.assertEqual(self.request("GET", "/", headers={"Cookie": cookie})[0], 200)
 
@@ -217,6 +221,20 @@ class ManagementApiTest(unittest.TestCase):
 
 
 class StartupCompatibilityTest(unittest.TestCase):
+    def test_browser_session_survives_process_state_reset(self) -> None:
+        from jukebox import server
+
+        with tempfile.TemporaryDirectory(prefix="jukebox-session-test-") as temporary:
+            key_file = Path(temporary).resolve() / "browser-session.key"
+            with mock.patch.object(server, "SESSION_KEY_FILE", key_file):
+                server.SESSION_SECRET_CACHE = None
+                token = server.create_browser_session(PASSWORD)
+                self.assertTrue(server.session_is_valid(token, PASSWORD))
+                self.assertEqual(key_file.stat().st_mode & 0o777, 0o600)
+                server.SESSION_SECRET_CACHE = None
+                self.assertTrue(server.session_is_valid(token, PASSWORD))
+                self.assertFalse(server.session_is_valid(token, "changed-password"))
+
     def test_embedded_tags_and_artwork_are_extracted(self) -> None:
         from mutagen.id3 import APIC, TALB, TIT2, TPE1  # type: ignore[import-not-found]
         from mutagen.mp3 import MP3  # type: ignore[import-not-found]
