@@ -126,7 +126,7 @@ Jukebox:
 - serves the device-style player controls at `/mini-sym` for the Sym Browser viewer;
 - starts through the committed `package.json` and `package-lock.json` contract.
 
-The npm start command launches the Python standard-library server. The core web app has no third-party Python package dependency.
+Embedded tags and cover artwork require Mutagen and Pillow. They are declared in `pyproject.toml` and `requirements.txt`; SYM worker images include the matching system packages. For standalone development, run `python3 -m pip install -r requirements.txt`. `npm start` then launches Jukebox with the active Python environment. Managed releases never write a virtual environment into immutable app source.
 
 ## Development checks
 

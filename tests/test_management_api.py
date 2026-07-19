@@ -200,6 +200,54 @@ class ManagementApiTest(unittest.TestCase):
 
 
 class StartupCompatibilityTest(unittest.TestCase):
+    def test_embedded_tags_and_artwork_are_extracted(self) -> None:
+        from mutagen.id3 import APIC, TALB, TIT2, TPE1  # type: ignore[import-not-found]
+        from mutagen.mp3 import MP3  # type: ignore[import-not-found]
+        from jukebox import server
+
+        with tempfile.TemporaryDirectory(prefix="jukebox-metadata-test-") as temporary:
+            root = Path(temporary).resolve()
+            music = root / "Music"
+            artwork = root / "Artwork"
+            music.mkdir()
+            track = music / "tagged.mp3"
+            track.write_bytes(
+                base64.b64decode(
+                    "SUQzBAAAAAAAIlRTU0UAAAAOAAADTGF2ZjYxLjcuMTAwAAAAAAAAAAAAAAD/4xjEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/4xjEOwAAA0gAAAAAVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/4xjEdgAAA0gAAAAAVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/4xjEsQAAA0gAAAAAVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU="
+                )
+            )
+            tagged = MP3(track)
+            if tagged.tags is None:
+                tagged.add_tags()
+            assert tagged.tags is not None
+            tagged.tags.add(TIT2(encoding=3, text=["Tagged Track"]))
+            tagged.tags.add(TPE1(encoding=3, text=["Tagged Artist"]))
+            tagged.tags.add(TALB(encoding=3, text=["Tagged Album"]))
+            tagged.tags.add(
+                APIC(
+                    encoding=3,
+                    mime="image/png",
+                    type=3,
+                    desc="Cover",
+                    data=base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="),
+                )
+            )
+            tagged.save()
+
+            with mock.patch.object(server, "LIBRARY_DIR", music), mock.patch.object(server, "ASSETS_DIR", artwork):
+                server.METADATA_CACHE.clear()
+                metadata = server.audio_metadata(track)
+                self.assertEqual(metadata["title"], "Tagged Track")
+                self.assertEqual(metadata["artist"], "Tagged Artist")
+                self.assertEqual(metadata["album"], "Tagged Album")
+                self.assertTrue(metadata["cover"])
+                self.assertTrue(metadata["cover_pixel"])
+                self.assertTrue(metadata["cover_lcd"])
+                cover_path = server.cover_file_path(metadata["cover"])
+                self.assertIsNotNone(cover_path)
+                assert cover_path is not None
+                self.assertTrue(cover_path.is_file())
+
     def test_unwritable_api_readme_does_not_crash_startup(self) -> None:
         from jukebox import server
 

@@ -1,1 +1,2 @@
-# Jukebox 1.0.0 uses only Python standard-library modules for the managed web app.
+mutagen>=1.46,<2
+Pillow>=10,<12

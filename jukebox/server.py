@@ -709,6 +709,14 @@ def audio_metadata(path: Path) -> dict[str, str]:
     try:
         full = MutagenFile(path)
         if full:
+            tags = getattr(full, "tags", None)
+            if tags:
+                if not metadata["title"]:
+                    metadata["title"] = first_tag_value(tags, ("TIT2", "\xa9nam", "TITLE", "title"))
+                if not metadata["artist"]:
+                    metadata["artist"] = first_tag_value(tags, ("TPE1", "\xa9ART", "aART", "ARTIST", "artist"))
+                if not metadata["album"]:
+                    metadata["album"] = first_tag_value(tags, ("TALB", "\xa9alb", "ALBUM", "album"))
             metadata.update(extract_cover_from_tags(path, full))
     except Exception:
         pass
