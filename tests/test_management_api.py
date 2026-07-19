@@ -153,6 +153,10 @@ class ManagementApiTest(unittest.TestCase):
         self.assertNotIn(PASSWORD, browser_session)
         self.assertEqual(self.request("GET", "/app")[0], 200)
         self.assertEqual(self.request("GET", "/api/library", headers={"X-Jukebox-Session": browser_session})[0], 200)
+        status, _, raw = self.request("GET", "/api/browser-stream-ticket", headers={"X-Jukebox-Session": browser_session})
+        self.assertEqual(status, 200)
+        stream_ticket = json.loads(raw)["ticket"]
+        self.assertNotIn(PASSWORD, stream_ticket)
         status, headers, _ = self.request(
             "POST",
             "/auth/session",
@@ -248,8 +252,14 @@ class ManagementApiTest(unittest.TestCase):
         self.assertTrue(album["cover"])
         self.assertEqual(self.request("GET", album["cover"])[0], 401)
         self.assertEqual(self.request("GET", album["cover"], headers=auth)[0], 200)
+        self.assertEqual(self.request("GET", f"{album['cover']}?ticket={stream_ticket}")[0], 200)
         self.assertEqual(self.request("GET", f"/media/{track_id}")[0], 401)
         self.assertEqual(self.request("GET", f"/media/{track_id}", headers=auth)[0], 200)
+        self.assertEqual(self.request("GET", f"/media/{track_id}?ticket=invalid")[0], 401)
+        status, headers, raw = self.request("GET", f"/media/{track_id}?ticket={stream_ticket}", headers={"Range": "bytes=0-31"})
+        self.assertEqual(status, 206)
+        self.assertEqual(len(raw), 32)
+        self.assertEqual(headers["Content-Range"].split("/", 1)[0], "bytes 0-31")
 
         status, _, playlist = self.json_request("POST", "/api/v1/playlists", {"name": "Fake Playlist", "track_ids": [track_id]}, PASSWORD)
         self.assertEqual(status, 201)
@@ -282,11 +292,15 @@ class StartupCompatibilityTest(unittest.TestCase):
             with mock.patch.object(server, "SESSION_KEY_FILE", key_file):
                 server.SESSION_SECRET_CACHE = None
                 token = server.create_browser_session(PASSWORD)
-                self.assertTrue(server.session_is_valid(token, PASSWORD))
+                stream_ticket, _ = server.create_browser_stream_ticket(PASSWORD)
                 self.assertEqual(key_file.stat().st_mode & 0o777, 0o600)
+                self.assertTrue(server.session_is_valid(token, PASSWORD))
+                self.assertTrue(server.browser_stream_ticket_is_valid(stream_ticket, PASSWORD))
                 server.SESSION_SECRET_CACHE = None
                 self.assertTrue(server.session_is_valid(token, PASSWORD))
                 self.assertFalse(server.session_is_valid(token, "changed-password"))
+                self.assertTrue(server.browser_stream_ticket_is_valid(stream_ticket, PASSWORD))
+                self.assertFalse(server.browser_stream_ticket_is_valid(stream_ticket, "changed-password"))
 
     def test_browser_login_does_not_wait_for_playback_lock(self) -> None:
         from jukebox import server

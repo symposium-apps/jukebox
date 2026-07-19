@@ -70,6 +70,7 @@ API_MAX_UPLOAD_BYTES = int(os.environ.get("JUKEBOX_API_MAX_UPLOAD_BYTES", str(4 
 USER_DATA_QUOTA_BYTES = int(os.environ.get("JUKEBOX_USER_DATA_QUOTA_BYTES", str(50 * 1024 * 1024 * 1024)))
 SESSION_COOKIE = "jukebox_session"
 SESSION_TTL_SECONDS = 180 * 24 * 60 * 60
+STREAM_TICKET_TTL_SECONDS = 12 * 60 * 60
 SESSION_KEY_FILE = HOME / "browser-session.key"
 APP_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 APP_ICON_PATH = APP_ASSETS_DIR / "icon.svg"
@@ -210,6 +211,29 @@ def session_is_valid(token: str, password: str) -> bool:
         return False
     expected = browser_session_signature(expires, password)
     return hmac.compare_digest(signature, expected)
+
+
+def browser_stream_ticket_signature(expires: int, password: str) -> str:
+    fingerprint = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    payload = f"jukebox-browser-stream-v1\n{expires}\n{fingerprint}".encode("ascii")
+    return hmac.new(browser_session_secret(), payload, hashlib.sha256).hexdigest()
+
+
+def create_browser_stream_ticket(password: str) -> tuple[str, int]:
+    expires = int(time.time()) + STREAM_TICKET_TTL_SECONDS
+    return f"{expires}.{browser_stream_ticket_signature(expires, password)}", expires
+
+
+def browser_stream_ticket_is_valid(token: str, password: str) -> bool:
+    if not token or not password:
+        return False
+    expires_text, separator, signature = token.partition(".")
+    if not separator or not expires_text.isdigit() or len(signature) != 64:
+        return False
+    expires = int(expires_text)
+    if expires <= int(time.time()):
+        return False
+    return hmac.compare_digest(signature, browser_stream_ticket_signature(expires, password))
 
 
 def request_is_authenticated(headers: object) -> bool:
@@ -2187,6 +2211,13 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: object) -> None:
         print(f"[{self.log_date_time_string()}] {self.address_string()} {fmt % args}")
 
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        request_line = self.requestline
+        parts = request_line.split(" ", 2)
+        if len(parts) == 3 and "?" in parts[1]:
+            request_line = f"{parts[0]} {parts[1].split('?', 1)[0]} {parts[2]}"
+        self.log_message('"%s" %s %s', request_line, str(code), str(size))
+
     def send_json(self, payload: dict[str, object], status: HTTPStatus = HTTPStatus.OK, headers: dict[str, str] | None = None) -> None:
         data = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -2347,7 +2378,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             api_v1 = path.startswith("/api/v1/") or path in {"/api/v1", "/api/agent/bootstrap"}
             html_route = path in {"/", "/manage", "/mini-sym"}
-            if not self.require_access(path, html_route=html_route, api_v1=api_v1):
+            stream_route = path.startswith(("/media/", "/library-art/", "/assets/"))
+            ticket = str((parse_qs(parsed.query).get("ticket") or [""])[0])
+            ticket_access = stream_route and browser_stream_ticket_is_valid(ticket, configured_password())
+            if not ticket_access and not self.require_access(path, html_route=html_route, api_v1=api_v1):
                 return
             if path in {"/", "/manage"}:
                 self.send_html(manage_page())
@@ -2379,6 +2413,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(screen_payload())
             elif path == "/api/status":
                 self.send_json(status_payload())
+            elif path == "/api/browser-stream-ticket":
+                ticket, expires = create_browser_stream_ticket(configured_password())
+                self.send_json({"ok": True, "ticket": ticket, "expires": expires})
             elif path == "/api/reset":
                 self.send_json(reset_jukebox_state())
             elif path == "/api/display/reinit":

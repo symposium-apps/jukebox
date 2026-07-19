@@ -2928,7 +2928,9 @@ const state = {
   playRequestId: 0,
   scrubbing: false,
   playback: loadBrowserPlayback(),
-  lastPlaybackSave: 0
+  lastPlaybackSave: 0,
+  streamTicket: "",
+  streamTicketExpires: 0
 };
 
 const PLAYBACK_STORAGE_KEY = "jukebox.playback.v1";
@@ -3049,12 +3051,18 @@ function fmtTime(seconds) {
 
 function assetUrl(path) {
   if (!path) return "";
-  if (String(path).startsWith("/")) return String(path);
-  return String(path).replace(/^..\/assets\//, "/assets/");
+  const resolved = String(path).startsWith("/") ? String(path) : String(path).replace(/^..\/assets\//, "/assets/");
+  return streamUrl(resolved);
+}
+
+function streamUrl(path) {
+  if (!path || !state.streamTicket || !/^\/(media|library-art|assets)\//.test(String(path))) return String(path || "");
+  const separator = String(path).includes("?") ? "&" : "?";
+  return `${path}${separator}ticket=${encodeURIComponent(state.streamTicket)}`;
 }
 
 function mediaUrl(trackId) {
-  return `/media/${encodeURIComponent(String(trackId))}`;
+  return streamUrl(`/media/${encodeURIComponent(String(trackId))}`);
 }
 
 function msg(text) {
@@ -3709,11 +3717,14 @@ function render() {
 }
 
 async function refresh({ keepMessage = false } = {}) {
-  const [status, library, playlists] = await Promise.all([
+  const [status, library, playlists, streamAccess] = await Promise.all([
     api("/api/status"),
     api("/api/library"),
-    api("/api/playlists")
+    api("/api/playlists"),
+    api("/api/browser-stream-ticket")
   ]);
+  state.streamTicket = String(streamAccess.ticket || "");
+  state.streamTicketExpires = Number(streamAccess.expires || 0);
   state.status = status;
   state.tracks = library.tracks || [];
   state.playlists = playlists.playlists || [];

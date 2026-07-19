@@ -44,6 +44,8 @@ The password is read directly from UserData, is never displayed in the Jukebox U
 
 After a successful browser login, Jukebox stores a signed persistent session in a secure `HttpOnly` cookie—not the password in browser storage. For embedded browsers that discard third-party cookies between launches, Jukebox also stores only the signed, revocable browser-session proof in local storage and silently exchanges it for a fresh `HttpOnly` cookie. The configured password is never written to local storage. Sessions survive reloads, browser relaunches, and managed app restarts; changing the UserData password invalidates them. HTTPS sessions use a partitioned cross-site cookie so the SYM-OS embedded app viewer can remember its own login safely.
 
+Mobile embedded browsers that block all third-party cookies stream audio and artwork with a short-lived, read-only browser stream ticket. The ticket is password-generation-bound, expires automatically, cannot call management APIs, and is redacted from Jukebox request logs.
+
 Remote requests authenticate with:
 
 ```http
