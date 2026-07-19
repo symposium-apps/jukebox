@@ -136,8 +136,24 @@ class ManagementApiTest(unittest.TestCase):
         self.assertIn("SameSite=None", headers["Set-Cookie"])
         self.assertIn("Secure", headers["Set-Cookie"])
         self.assertIn("Partitioned", headers["Set-Cookie"])
+        self.assertIn(f"Max-Age={180 * 24 * 60 * 60}", headers["Set-Cookie"])
         cookie = headers["Set-Cookie"].split(";", 1)[0]
         self.assertEqual(self.request("GET", "/", headers={"Cookie": cookie})[0], 200)
+        self.assertEqual(self.request("POST", "/api/v1/library/rescan", {}, {"Cookie": cookie})[0], 403)
+        self.assertEqual(
+            self.request(
+                "POST",
+                "/api/v1/library/rescan",
+                {},
+                {
+                    "Cookie": cookie,
+                    "Origin": "https://jukebox.example",
+                    "X-Forwarded-Host": "jukebox.example",
+                    "Sec-Fetch-Site": "same-origin",
+                },
+            )[0],
+            200,
+        )
 
         wav_path = self.root / "fake.wav"
         with wave.open(str(wav_path), "wb") as output:

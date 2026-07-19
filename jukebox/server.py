@@ -225,11 +225,17 @@ def browser_session_secret() -> bytes:
             secret = b""
         if len(secret) != 32:
             secret = secrets.token_bytes(32)
-            SESSION_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
             temporary = SESSION_KEY_FILE.with_name(f".{SESSION_KEY_FILE.name}.{uuid.uuid4().hex}.tmp")
-            temporary.write_text(secret.hex(), encoding="ascii")
-            temporary.chmod(0o600)
-            os.replace(temporary, SESSION_KEY_FILE)
+            try:
+                SESSION_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+                temporary.write_text(secret.hex(), encoding="ascii")
+                temporary.chmod(0o600)
+                os.replace(temporary, SESSION_KEY_FILE)
+            except OSError:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
         try:
             SESSION_KEY_FILE.chmod(0o600)
         except OSError:
@@ -2167,20 +2173,38 @@ class Handler(BaseHTTPRequestHandler):
             {"WWW-Authenticate": 'Bearer realm="Jukebox"'},
         )
 
+    def browser_mutation_origin_allowed(self) -> bool:
+        fetch_site = self.headers.get("Sec-Fetch-Site", "").strip().casefold()
+        if fetch_site == "cross-site":
+            return False
+        origin = self.headers.get("Origin", "").strip()
+        if origin:
+            if origin.casefold() == "null":
+                return False
+            parsed = urlparse(origin)
+            expected_host = (self.headers.get("X-Forwarded-Host", "") or self.headers.get("Host", "")).split(",", 1)[0].strip().casefold()
+            return parsed.scheme in {"http", "https"} and parsed.netloc.casefold() == expected_host
+        return fetch_site in {"same-origin", "same-site"}
+
     def require_access(self, path: str, *, html_route: bool = False, api_v1: bool = False) -> bool:
         password = configured_password()
+        authenticated = bool(password and request_is_authenticated(self.headers))
         if api_v1:
-            if not password or not request_is_authenticated(self.headers):
+            if not authenticated:
                 self.send_unauthorized()
                 return False
-            return True
-        if password and not request_is_authenticated(self.headers):
+        elif password and not authenticated:
             if html_route:
                 failed = parse_qs(urlparse(self.path).query).get("auth", [""])[0] == "failed"
                 self.send_html(login_gate(failed), HTTPStatus.UNAUTHORIZED)
             else:
                 self.send_unauthorized()
             return False
+        if authenticated and self.command in {"POST", "PUT", "DELETE", "PATCH"}:
+            bearer = bearer_password(self.headers)
+            if not passwords_match(bearer, password) and not self.browser_mutation_origin_allowed():
+                self.send_json({"ok": False, "error": "Forbidden"}, HTTPStatus.FORBIDDEN)
+                return False
         return True
 
     def handle_login(self) -> None:
