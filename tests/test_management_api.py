@@ -284,9 +284,13 @@ class ManagementApiTest(unittest.TestCase):
         album = scan["data"]["albums"][0]
         self.assertEqual(album["name"], "Fake Album")
         self.assertTrue(album["cover"])
+        self.assertTrue("?v=" in album["cover"] or album["cover"].startswith("/assets/covers/"))
         self.assertEqual(self.request("GET", album["cover"])[0], 401)
-        self.assertEqual(self.request("GET", album["cover"], headers=auth)[0], 200)
-        self.assertEqual(self.request("GET", f"{album['cover']}?ticket={stream_ticket}")[0], 200)
+        cover_status, cover_headers, _ = self.request("GET", album["cover"], headers=auth)
+        self.assertEqual(cover_status, 200)
+        self.assertEqual(cover_headers["Cache-Control"], "private, max-age=86400")
+        separator = "&" if "?" in album["cover"] else "?"
+        self.assertEqual(self.request("GET", f"{album['cover']}{separator}ticket={stream_ticket}")[0], 200)
         self.assertEqual(self.request("GET", f"/media/{track_id}")[0], 401)
         self.assertEqual(self.request("GET", f"/media/{track_id}", headers=auth)[0], 200)
         self.assertEqual(self.request("GET", f"/media/{track_id}?ticket=invalid")[0], 401)
@@ -352,6 +356,39 @@ class StartupCompatibilityTest(unittest.TestCase):
         self.assertIn('audio.addEventListener("loadedmetadata", () => {', page)
         self.assertIn("audio.currentTime = Math.min(position", page)
         self.assertIn("if (recoverSilentIosAudioOutput()) return", page)
+        self.assertIn("mediaSessionMetadataKey", page)
+        self.assertIn("metadataKey !== mediaSessionMetadataKey", page)
+
+    def test_browser_player_persistently_caches_artwork_by_password_generation(self) -> None:
+        page = (Path(__file__).resolve().parents[1] / "jukebox" / "manage.html").read_text(encoding="utf-8-sig")
+        for marker in (
+            'ARTWORK_CACHE_DB_NAME = "jukebox-artwork-cache-v1"',
+            "ARTWORK_CACHE_MAX_BYTES = 100 * 1024 * 1024",
+            "ARTWORK_CACHE_MAX_ITEM_BYTES = 10 * 1024 * 1024",
+            "initializeArtworkCache(state.cacheGeneration)",
+            "clearArtworkCache({ generation: \"\" })",
+            'db.createObjectStore("entries", { keyPath: "path" })',
+            'db.createObjectStore("settings", { keyPath: "key" })',
+            'artworkDbGet("settings", "generation")',
+            'artworkDbPut("entries", entry)',
+            'entry = { path, generation, blob, size: blob.size, cachedAt: Date.now() }',
+            'cache: "no-store"',
+            "URL.createObjectURL(blob)",
+            "artworkCache.urls.get(path)",
+            "enforceArtworkCacheLimit(blob.size)",
+            "await primeArtworkCache()",
+        ):
+            self.assertIn(marker, page)
+        self.assertNotIn("`${ARTWORK_CACHE_DB_NAME}:${generation}`", page)
+        self.assertIn("return paths.map(path => ({ src: new URL(assetUrl(normalizedArtworkPath(path))", page)
+
+    def test_browser_shows_animated_logo_until_initial_refresh_settles(self) -> None:
+        page = (Path(__file__).resolve().parents[1] / "jukebox" / "manage.html").read_text(encoding="utf-8-sig")
+        self.assertIn('id="appLoader" class="app-loader"', page)
+        self.assertEqual(page.count('class="app-loader-bar"'), 5)
+        self.assertIn("@keyframes app-loader-level", page)
+        self.assertIn("scaleY(.38)", page)
+        self.assertIn("}).finally(hideAppLoader);", page)
 
     def test_browser_player_caches_current_and_next_audio_with_bounded_lru(self) -> None:
         page = (Path(__file__).resolve().parents[1] / "jukebox" / "manage.html").read_text(encoding="utf-8-sig")

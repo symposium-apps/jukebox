@@ -373,7 +373,14 @@ def clean_display_name(value: str) -> str:
 
 
 def media_url(relative_path: str) -> str:
-    return "/library-art/" + relative_path.replace("\\", "/")
+    normalized = relative_path.replace("\\", "/")
+    path = (LIBRARY_DIR / normalized).resolve()
+    try:
+        stat = path.stat()
+        version = f"{stat.st_mtime_ns:x}-{stat.st_size:x}"
+    except OSError:
+        version = "missing"
+    return f"/library-art/{normalized}?v={version}"
 
 
 def album_info_for_relative_path(relative_path: str) -> tuple[str, str]:
@@ -480,6 +487,7 @@ def cover_file_path(value: str) -> Path | None:
     clean = str(value or "").strip()
     if not clean:
         return None
+    clean = urlparse(clean).path
     if clean.startswith("/assets/"):
         path = (ASSETS_DIR / clean.removeprefix("/assets/")).resolve()
     elif clean.startswith("/library-art/"):
@@ -2888,6 +2896,7 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "private, max-age=86400")
         self.send_header("Content-Length", str(path.stat().st_size))
         self.end_headers()
         with path.open("rb") as file:
@@ -2902,6 +2911,7 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "private, max-age=86400")
         self.send_header("Content-Length", str(path.stat().st_size))
         self.end_headers()
         with path.open("rb") as file:

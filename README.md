@@ -52,7 +52,9 @@ Jukebox is installable as a first-class PWA from its direct deployment URL. Its 
 
 Lock-screen and Dynamic Island play/pause use WebKit's native media-element transport instead of JavaScript action handlers. Native play/pause events synchronize saved Jukebox state after WebKit acts.
 
-The browser caches the complete current track and preloads the next queued track in private browser storage. A 500 MB maximum, browser-quota awareness, and least-recently-used eviction bound the cache. Cached audio is generation-bound to the configured password and is cleared when that generation changes; unsupported browsers continue using range streaming.
+The browser caches the complete current track and preloads the next queued track in private browser storage. A 500 MB maximum, browser-quota awareness, and least-recently-used eviction bound the audio cache. Album and playlist artwork is also persisted in a separate generation-bound cache (100 MB and 512-image maximum) and hydrated before the initial library is revealed, avoiding repeated artwork loads. Cached media is invalidated when the password generation changes; unsupported browsers continue using direct authenticated requests.
+
+While the initial library and any uncached artwork are prepared, the app displays an accessible black startup screen with the animated five-bar Jukebox mark. Reduced-motion preferences disable the bar animation.
 
 On an iPhone or iPad home-screen installation, Jukebox unregisters the audio cache worker and keeps native media requests on WebKit's direct authenticated HTTP range path. A worker that still controls the current page is first placed in a persisted network-only mode; after the PWA fully closes, its next launch has no media fetch worker between iOS and the server.
 

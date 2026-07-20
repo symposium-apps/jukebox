@@ -2813,9 +2813,62 @@
       .top-nav-pill .nav-label { display: none; }
       .top-nav-pill { padding: 0; }
     }
+
+    .app-loader {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: grid;
+      place-items: center;
+      background: #000;
+      opacity: 1;
+      transition: opacity 320ms ease;
+    }
+
+    .app-loader.leaving {
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    .app-loader-logo {
+      width: clamp(82px, 18vw, 118px);
+      height: auto;
+      overflow: visible;
+    }
+
+    .app-loader-bar {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: app-loader-level 760ms ease-in-out infinite alternate;
+    }
+
+    .app-loader-bar:nth-child(2) { animation-delay: -520ms; animation-duration: 880ms; }
+    .app-loader-bar:nth-child(3) { animation-delay: -240ms; animation-duration: 680ms; }
+    .app-loader-bar:nth-child(4) { animation-delay: -610ms; animation-duration: 820ms; }
+    .app-loader-bar:nth-child(5) { animation-delay: -360ms; animation-duration: 720ms; }
+
+    @keyframes app-loader-level {
+      from { transform: scaleY(.38); }
+      to { transform: scaleY(1); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .app-loader { transition-duration: 1ms; }
+      .app-loader-bar { animation: none; }
+    }
   </style>
 </head>
 <body class="jb">
+<div id="appLoader" class="app-loader" role="status" aria-label="Loading Jukebox">
+  <svg class="app-loader-logo" viewBox="0 0 512 512" aria-hidden="true">
+    <rect width="512" height="512" rx="120" fill="#101014"/>
+    <rect class="app-loader-bar" x="102" y="216" width="44" height="100" rx="22" fill="#fbbf24"/>
+    <rect class="app-loader-bar" x="172" y="151" width="44" height="230" rx="22" fill="#fb923c"/>
+    <rect class="app-loader-bar" x="242" y="96" width="44" height="340" rx="22" fill="#f43f5e"/>
+    <rect class="app-loader-bar" x="312" y="176" width="44" height="180" rx="22" fill="#e879f9"/>
+    <rect class="app-loader-bar" x="382" y="236" width="44" height="60" rx="22" fill="#c084fc"/>
+  </svg>
+</div>
 <main class="app jb-ambient">
   <header class="topbar">
     <button class="brand" data-nav="root" type="button">
@@ -2954,6 +3007,7 @@ const state = {
   webAudioSource: "",
   webAudioObjectUrl: ""
 };
+const appLoaderStartedAt = performance.now();
 
 const PLAYBACK_STORAGE_KEY = "jukebox.playback.v1";
 
@@ -3009,6 +3063,16 @@ function qs(id) {
   return document.getElementById(id);
 }
 
+function hideAppLoader() {
+  const loader = qs("appLoader");
+  if (!loader) return;
+  const delay = Math.max(0, 620 - (performance.now() - appLoaderStartedAt));
+  window.setTimeout(() => {
+    loader.classList.add("leaving");
+    window.setTimeout(() => loader.remove(), 340);
+  }, delay);
+}
+
 async function api(path, options = {}) {
   const headers = {
     ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
@@ -3020,7 +3084,10 @@ async function api(path, options = {}) {
     headers
   });
   if (response.status === 401 && browserSession) {
-    await clearAudioCache({ generation: "", preservePlayback: false }).catch(() => {});
+    await Promise.all([
+      clearAudioCache({ generation: "", preservePlayback: false }).catch(() => {}),
+      clearArtworkCache({ generation: "" }).catch(() => {})
+    ]);
     try { localStorage.removeItem(BROWSER_SESSION_STORAGE_KEY); } catch (_) {}
     location.replace("/");
     throw new Error("Your saved session expired.");
@@ -3604,6 +3671,214 @@ function streamUrl(path) {
   return `${path}${separator}ticket=${encodeURIComponent(state.streamTicket)}&generation=${encodeURIComponent(state.cacheGeneration)}`;
 }
 
+const ARTWORK_CACHE_DB_NAME = "jukebox-artwork-cache-v1";
+const LEGACY_ARTWORK_CACHE_PREFIX = "jukebox-artwork-v1:";
+const ARTWORK_CACHE_MAX_ENTRIES = 512;
+const ARTWORK_CACHE_MAX_BYTES = 100 * 1024 * 1024;
+const ARTWORK_CACHE_MAX_ITEM_BYTES = 10 * 1024 * 1024;
+const artworkCache = {
+  supported: false,
+  initialized: false,
+  generation: "",
+  db: null,
+  urls: new Map(),
+  pending: new Map(),
+  renderTimer: 0
+};
+
+function normalizedArtworkPath(path) {
+  if (!path) return "";
+  return String(path).startsWith("/") ? String(path) : String(path).replace(/^..\/assets\//, "/assets/");
+}
+
+async function openArtworkCacheDb() {
+  const request = indexedDB.open(ARTWORK_CACHE_DB_NAME, 1);
+  request.onupgradeneeded = () => {
+    const db = request.result;
+    if (!db.objectStoreNames.contains("entries")) db.createObjectStore("entries", { keyPath: "path" });
+    if (!db.objectStoreNames.contains("settings")) db.createObjectStore("settings", { keyPath: "key" });
+  };
+  return idbRequest(request);
+}
+
+async function artworkDbGet(storeName, key) {
+  const transaction = artworkCache.db.transaction(storeName, "readonly");
+  return idbRequest(transaction.objectStore(storeName).get(key));
+}
+
+async function artworkDbGetAll(storeName) {
+  const transaction = artworkCache.db.transaction(storeName, "readonly");
+  return idbRequest(transaction.objectStore(storeName).getAll());
+}
+
+async function artworkDbPut(storeName, value) {
+  const transaction = artworkCache.db.transaction(storeName, "readwrite");
+  const done = idbTransactionDone(transaction);
+  await idbRequest(transaction.objectStore(storeName).put(value));
+  await done;
+}
+
+async function artworkDbDelete(storeName, key) {
+  const transaction = artworkCache.db.transaction(storeName, "readwrite");
+  const done = idbTransactionDone(transaction);
+  await idbRequest(transaction.objectStore(storeName).delete(key));
+  await done;
+}
+
+async function artworkDbClear(storeName) {
+  const transaction = artworkCache.db.transaction(storeName, "readwrite");
+  const done = idbTransactionDone(transaction);
+  await idbRequest(transaction.objectStore(storeName).clear());
+  await done;
+}
+
+function revokeArtworkUrls() {
+  artworkCache.urls.forEach(url => URL.revokeObjectURL(url));
+  artworkCache.urls.clear();
+}
+
+async function clearArtworkCache({ generation = artworkCache.generation } = {}) {
+  clearTimeout(artworkCache.renderTimer);
+  revokeArtworkUrls();
+  artworkCache.pending.clear();
+  if (artworkCache.db) {
+    await artworkDbClear("entries");
+    await artworkDbPut("settings", { key: "generation", value: String(generation || "") });
+  }
+  // Remove caches created by the unreleased Cache Storage implementation.
+  if ("caches" in window) {
+    const names = await caches.keys();
+    await Promise.all(names.filter(name => name.startsWith(LEGACY_ARTWORK_CACHE_PREFIX)).map(name => caches.delete(name)));
+  }
+  artworkCache.generation = String(generation || "");
+  artworkCache.initialized = false;
+}
+
+async function initializeArtworkCache(generation) {
+  generation = String(generation || "");
+  if (!generation || !("indexedDB" in window)) {
+    artworkCache.supported = false;
+    artworkCache.initialized = true;
+    return;
+  }
+  if (artworkCache.initialized && artworkCache.supported && artworkCache.generation === generation) return;
+  try {
+    revokeArtworkUrls();
+    artworkCache.pending.clear();
+    if (!artworkCache.db) artworkCache.db = await openArtworkCacheDb();
+    const savedGeneration = String((await artworkDbGet("settings", "generation"))?.value || "");
+    if (savedGeneration !== generation) {
+      await artworkDbClear("entries");
+      await artworkDbPut("settings", { key: "generation", value: generation });
+    }
+    artworkCache.generation = generation;
+    artworkCache.supported = true;
+    const entries = await artworkDbGetAll("entries");
+    for (const entry of entries) {
+      const blob = entry?.blob;
+      if (!entry?.path || !(blob instanceof Blob) || !blob.size || blob.size > ARTWORK_CACHE_MAX_ITEM_BYTES || !String(blob.type || "").startsWith("image/")) {
+        if (entry?.path) await artworkDbDelete("entries", entry.path);
+        continue;
+      }
+      artworkCache.urls.set(entry.path, URL.createObjectURL(blob));
+    }
+  } catch (_error) {
+    artworkCache.db = null;
+    artworkCache.supported = false;
+  }
+  artworkCache.initialized = true;
+}
+
+function scheduleArtworkRender() {
+  clearTimeout(artworkCache.renderTimer);
+  artworkCache.renderTimer = window.setTimeout(() => {
+    render();
+    updateMediaSessionMetadata();
+  }, 40);
+}
+
+async function enforceArtworkCacheLimit(requiredBytes = 0) {
+  if (!artworkCache.db) return false;
+  const entries = (await artworkDbGetAll("entries"))
+    .sort((left, right) => Number(left.cachedAt || 0) - Number(right.cachedAt || 0));
+  let bytes = entries.reduce((total, entry) => total + Number(entry.size || entry.blob?.size || 0), 0);
+  while ((entries.length >= ARTWORK_CACHE_MAX_ENTRIES || bytes + requiredBytes > ARTWORK_CACHE_MAX_BYTES) && entries.length) {
+    const stale = entries.shift();
+    await artworkDbDelete("entries", stale.path);
+    const url = artworkCache.urls.get(stale.path);
+    if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+    artworkCache.urls.delete(stale.path);
+    bytes = Math.max(0, bytes - Number(stale.size || stale.blob?.size || 0));
+  }
+  return bytes + requiredBytes <= ARTWORK_CACHE_MAX_BYTES;
+}
+
+async function cacheArtwork(path, { scheduleRender = true } = {}) {
+  path = normalizedArtworkPath(path);
+  if (!path || !artworkCache.supported || !artworkCache.db) return assetUrl(path);
+  if (artworkCache.urls.has(path)) return artworkCache.urls.get(path);
+  if (artworkCache.pending.has(path)) return artworkCache.pending.get(path);
+  const generation = artworkCache.generation;
+  const pending = (async () => {
+    let entry = await artworkDbGet("entries", path);
+    if (!entry || entry.generation !== generation || !(entry.blob instanceof Blob)) {
+      const fetched = await fetch(assetUrl(path), { credentials: "same-origin", cache: "no-store" });
+      if (!fetched.ok) throw new Error(`Artwork request failed (${fetched.status})`);
+      const blob = await fetched.blob();
+      if (!String(blob.type || "").startsWith("image/")) throw new Error("Artwork response was not an image");
+      if (!blob.size || blob.size > ARTWORK_CACHE_MAX_ITEM_BYTES) throw new Error("Artwork is too large to cache");
+      if (!await enforceArtworkCacheLimit(blob.size)) throw new Error("Artwork cache is full");
+      entry = { path, generation, blob, size: blob.size, cachedAt: Date.now() };
+      await artworkDbPut("entries", entry);
+    }
+    const blob = entry.blob;
+    const url = URL.createObjectURL(blob);
+    if (artworkCache.generation !== generation) {
+      URL.revokeObjectURL(url);
+      return "";
+    }
+    artworkCache.urls.set(path, url);
+    if (scheduleRender) scheduleArtworkRender();
+    return url;
+  })().catch(() => {
+    const fallback = assetUrl(path);
+    artworkCache.urls.set(path, fallback);
+    if (scheduleRender) scheduleArtworkRender();
+    return fallback;
+  }).finally(() => artworkCache.pending.delete(path));
+  artworkCache.pending.set(path, pending);
+  return pending;
+}
+
+function artworkUrl(path) {
+  path = normalizedArtworkPath(path);
+  if (!path) return "";
+  if (!artworkCache.supported) return assetUrl(path);
+  const cached = artworkCache.urls.get(path);
+  if (cached) return cached;
+  cacheArtwork(path);
+  return assetUrl(path);
+}
+
+function artworkPathsFromLibrary() {
+  const paths = [];
+  for (const track of state.tracks) {
+    paths.push(track.album_cover, track.album_cover_pixel, track.album_cover_lcd);
+  }
+  for (const playlist of state.playlists) {
+    paths.push(playlist.cover, playlist.cover_lcd, playlist.cover_source);
+  }
+  return [...new Set(paths.map(normalizedArtworkPath).filter(Boolean))];
+}
+
+async function primeArtworkCache() {
+  if (!artworkCache.supported) return;
+  const paths = artworkPathsFromLibrary();
+  for (let index = 0; index < paths.length; index += 4) {
+    await Promise.all(paths.slice(index, index + 4).map(path => cacheArtwork(path, { scheduleRender: false })));
+  }
+}
+
 function mediaUrl(trackId) {
   return streamUrl(`/media/${encodeURIComponent(String(trackId))}`);
 }
@@ -3949,10 +4224,12 @@ function recoverSilentIosAudioOutput() {
   return true;
 }
 
+let mediaSessionMetadataKey = "";
+
 function mediaSessionArtwork(track) {
   const paths = [track?.album_cover, track?.album_cover_pixel, track?.album_cover_lcd]
     .filter((path, index, items) => path && items.indexOf(path) === index);
-  return paths.map(path => ({ src: new URL(assetUrl(path), window.location.href).href }));
+  return paths.map(path => ({ src: new URL(assetUrl(normalizedArtworkPath(path)), window.location.href).href }));
 }
 
 function updateMediaSessionMetadata() {
@@ -3961,14 +4238,20 @@ function updateMediaSessionMetadata() {
   if (!track) {
     navigator.mediaSession.metadata = null;
     navigator.mediaSession.playbackState = "none";
+    mediaSessionMetadataKey = "";
     return;
   }
-  navigator.mediaSession.metadata = new MediaMetadata({
+  const metadata = {
     title: String(track.name || track.title || track.filename || "Unknown Track"),
     artist: artistName(track) || "Jukebox",
     album: albumName(track) || state.playback.queueName || "Jukebox",
     artwork: mediaSessionArtwork(track)
-  });
+  };
+  const metadataKey = JSON.stringify([String(track.id || ""), metadata.title, metadata.artist, metadata.album, metadata.artwork.map(item => item.src)]);
+  if (metadataKey !== mediaSessionMetadataKey) {
+    navigator.mediaSession.metadata = new MediaMetadata(metadata);
+    mediaSessionMetadataKey = metadataKey;
+  }
   navigator.mediaSession.playbackState = isPlaybackPaused() ? "paused" : "playing";
 }
 
@@ -4096,7 +4379,7 @@ function renderRail() {
   rail.innerHTML = state.playlists.map(item => {
     const cover = item.cover || item.cover_lcd || item.cover_source;
     const image = cover
-      ? `<img src="${escapeHtml(assetUrl(cover))}" alt="">`
+      ? `<img src="${escapeHtml(artworkUrl(cover))}" alt="">`
       : `<span class="mini-fallback">PL</span>`;
     return `
       <div class="playlist-mini" data-open="playlist:${escapeHtml(item.slug)}">
@@ -4120,7 +4403,7 @@ function renderStatus() {
     : "Select a track, album, or playlist";
   const currentCover = current ? albumCoverForTrack(current) : "";
   qs("playerCover").hidden = !currentCover;
-  qs("playerCover").src = currentCover ? assetUrl(currentCover) : "";
+  qs("playerCover").src = currentCover ? artworkUrl(currentCover) : "";
   qs("playerFallback").hidden = !!currentCover;
   buttonLabel("playPauseBtn", iconSvg(paused ? "play" : "pause"), paused ? "Resume" : "Pause");
   qs("volumeSlider").value = state.status.state.volume;
@@ -4144,7 +4427,7 @@ function sectionBlock(title, meta, body) {
 
 function mediaCard({ name, sub, open, count, cover, checkKind, checkValue, fallback = "AL", playAction = "" }) {
   const art = cover
-    ? `<img class="card-cover" src="${escapeHtml(assetUrl(cover))}" alt="">`
+    ? `<img class="card-cover" src="${escapeHtml(artworkUrl(cover))}" alt="">`
     : `<div class="card-fallback">${escapeHtml(fallback)}</div>`;
   const checkbox = checkKind && checkValue
     ? `<input class="card-check" data-${escapeHtml(checkKind)}-check type="checkbox" value="${escapeHtml(checkValue)}" aria-label="Select ${escapeHtml(name)}">`
@@ -4172,7 +4455,7 @@ function trackRow(track) {
   ].filter(Boolean).join(" / ");
   const cover = albumCoverForTrack(track);
   const icon = cover
-    ? `<img class="track-cover" src="${escapeHtml(assetUrl(cover))}" alt="">`
+    ? `<img class="track-cover" src="${escapeHtml(artworkUrl(cover))}" alt="">`
     : `<span class="track-cover"></span>`;
   return `
     <article class="track-row ${playing ? "playing" : ""}" data-track-row="${escapeHtml(track.id)}" data-selectable>
@@ -4267,8 +4550,8 @@ function renderRows() {
   const activePlaylist = state.view.type === "playlist" ? playlistBySlug(state.view.slug) : null;
   const activeAlbum = state.view.type === "album" ? albums().find(item => item.name === state.view.name) : null;
   const cover = activePlaylist
-    ? assetUrl(activePlaylist.cover || activePlaylist.cover_lcd || activePlaylist.cover_source)
-    : activeAlbum ? assetUrl(activeAlbum.cover) : "";
+    ? artworkUrl(activePlaylist.cover || activePlaylist.cover_lcd || activePlaylist.cover_source)
+    : activeAlbum ? artworkUrl(activeAlbum.cover) : "";
   const mainPanel = document.querySelector(".main-panel");
   mainPanel.classList.toggle("detail-view", !!cover);
   mainPanel.style.setProperty("--hero-art", cover ? `url("${cover.replace(/"/g, "%22")}")` : "none");
@@ -4376,10 +4659,14 @@ async function refresh({ keepMessage = false } = {}) {
   state.streamTicket = String(streamAccess.ticket || "");
   state.streamTicketExpires = Number(streamAccess.expires || 0);
   state.cacheGeneration = String(streamAccess.cache_generation || "");
-  await initializeAudioCache(state.cacheGeneration);
+  await Promise.all([
+    initializeAudioCache(state.cacheGeneration),
+    initializeArtworkCache(state.cacheGeneration)
+  ]);
   state.status = status;
   state.tracks = library.tracks || [];
   state.playlists = playlists.playlists || [];
+  await primeArtworkCache();
   await reconcileAudioCache();
   state.playback.queue = state.playback.queue.filter(id => state.tracks.some(track => String(track.id) === String(id)));
   syncStatusFromBrowser();
@@ -4398,7 +4685,10 @@ async function refreshStreamAccess() {
   state.streamTicket = String(streamAccess.ticket || "");
   state.streamTicketExpires = Number(streamAccess.expires || 0);
   state.cacheGeneration = generation;
-  await initializeAudioCache(generation);
+  await Promise.all([
+    initializeAudioCache(generation),
+    initializeArtworkCache(generation)
+  ]);
   if (changed) await reconcileAudioCache();
   scheduleAudioCaching();
 }
@@ -4506,7 +4796,12 @@ qs("clearCacheBtn").addEventListener("click", async () => {
   if (!serviceWorkerAudioCache.supported && !audioCache.supported) return;
   const bytes = serviceWorkerAudioCache.supported ? serviceWorkerAudioCache.bytes : audioCache.bytes;
   if (!confirm(`Clear ${fmtSize(bytes)} of downloaded audio from this device?`)) return;
-  await clearAudioCache();
+  await Promise.all([
+    clearAudioCache(),
+    clearArtworkCache({ generation: state.cacheGeneration })
+  ]);
+  await initializeArtworkCache(state.cacheGeneration);
+  render();
   scheduleAudioCaching();
   msg("Device audio cache cleared");
 });
@@ -4764,7 +5059,7 @@ refresh().catch(error => {
   qs("rows").innerHTML = "";
   qs("emptyState").hidden = false;
   qs("emptyState").textContent = error.message;
-});
+}).finally(hideAppLoader);
 window.setInterval(() => refreshStreamAccess().catch(() => {}), 5 * 60 * 1000);
 </script>
 </body>
