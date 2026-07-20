@@ -317,6 +317,10 @@ class StartupCompatibilityTest(unittest.TestCase):
         self.assertNotIn("resumeWebAudioFromMediaSession", page)
         self.assertIn('qs("webAudio").addEventListener("play", () => {', page)
         self.assertIn('qs("webAudio").addEventListener("pause", () => {', page)
+        self.assertIn("IOS_STANDALONE_MEDIA", page)
+        self.assertIn("networkOnly: IOS_STANDALONE_MEDIA", page)
+        self.assertIn("navigator.serviceWorker.getRegistrations()", page)
+        self.assertIn("registration.unregister()", page)
 
     def test_browser_player_caches_current_and_next_audio_with_bounded_lru(self) -> None:
         page = (Path(__file__).resolve().parents[1] / "jukebox" / "manage.html").read_text(encoding="utf-8-sig")
@@ -329,7 +333,11 @@ class StartupCompatibilityTest(unittest.TestCase):
             'navigator.serviceWorker.register("/jukebox-sw.js"',
         ):
             self.assertIn(marker, page)
-        for marker in ("configuredBudget", "lastAccess", "parseRange", "X-Jukebox-Audio-Cache", "cacheTracks", "ticket !== configuredTicket"):
+        for marker in (
+            "configuredBudget", "lastAccess", "parseRange", "X-Jukebox-Audio-Cache", "cacheTracks",
+            "ticket !== configuredTicket", 'dbGet("settings", "networkOnly")',
+            "if (configuredNetworkOnly || savedNetworkOnly) return fetch(request)",
+        ):
             self.assertIn(marker, worker)
 
     def test_browser_session_survives_process_state_reset(self) -> None:

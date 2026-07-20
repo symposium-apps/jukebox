@@ -4,6 +4,7 @@ const MAX_BYTES = 500 * 1024 * 1024;
 let configuredGeneration = "";
 let configuredTicket = "";
 let configuredBudget = MAX_BYTES;
+let configuredNetworkOnly = false;
 let desiredKeys = new Set();
 let activeDownload = null;
 let downloadChain = Promise.resolve();
@@ -120,7 +121,9 @@ async function configure(message) {
   configuredGeneration = nextGeneration;
   configuredTicket = String(message.ticket || "");
   configuredBudget = Math.max(0, Math.min(MAX_BYTES, Number(message.budget || MAX_BYTES)));
-  if (savedGeneration !== nextGeneration) await clearStoredAudio(nextGeneration);
+  configuredNetworkOnly = message.networkOnly === true;
+  await dbPut("settings", { key: "networkOnly", value: configuredNetworkOnly });
+  if (configuredNetworkOnly || savedGeneration !== nextGeneration) await clearStoredAudio(nextGeneration);
   else await enforceBudget(0);
   await broadcastStatus();
 }
@@ -145,7 +148,7 @@ async function cacheOneTrack(track) {
   const modified = Number(track.modified || 0);
   const generation = String(track.generation || "");
   const key = `${id}:${size}:${modified}`;
-  if (!id || !size || size > configuredBudget || generation !== configuredGeneration || !configuredTicket) return;
+  if (configuredNetworkOnly || !id || !size || size > configuredBudget || generation !== configuredGeneration || !configuredTicket) return;
   const existing = await dbGet("entries", key);
   if (existing) {
     existing.lastAccess = Date.now();
@@ -227,6 +230,12 @@ function parseRange(header, size) {
 }
 
 async function cachedMediaResponse(request) {
+  // iOS home-screen apps must leave native media range loading on WebKit's
+  // network path. The worker can be terminated while the PWA is backgrounded;
+  // persist this mode so a lock-screen wake never depends on in-memory cache
+  // configuration being restored by page JavaScript first.
+  const savedNetworkOnly = (await dbGet("settings", "networkOnly"))?.value === true;
+  if (configuredNetworkOnly || savedNetworkOnly) return fetch(request);
   const url = new URL(request.url);
   const trackId = decodeURIComponent(url.pathname.slice("/media/".length));
   const generation = String(url.searchParams.get("generation") || "");

@@ -3049,6 +3049,8 @@ function fmtSize(bytes) {
 
 const AUDIO_CACHE_DB_NAME = "jukebox-audio-cache-v1";
 const AUDIO_CACHE_MAX_BYTES = 500 * 1024 * 1024;
+const IOS_STANDALONE_MEDIA = /iP(?:hone|ad|od)/.test(navigator.userAgent)
+  && (navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches);
 const audioCache = {
   initialized: false,
   supported: false,
@@ -3096,6 +3098,26 @@ navigator.serviceWorker?.addEventListener("message", event => {
 async function initializeServiceWorkerAudioCache(generation) {
   if (!("serviceWorker" in navigator) || !generation || !state.streamTicket) return false;
   try {
+    if (IOS_STANDALONE_MEDIA) {
+      // A previously installed cache worker remains in control until all PWA
+      // windows close. Put it into direct-network mode for this lifetime, then
+      // unregister it so the next home-screen launch has no media fetch worker.
+      postServiceWorkerAudioCache({
+        type: "configure",
+        generation,
+        ticket: state.streamTicket,
+        budget: 0,
+        networkOnly: true
+      });
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(registration => registration.unregister()));
+      serviceWorkerAudioCache.supported = false;
+      serviceWorkerAudioCache.bytes = 0;
+      serviceWorkerAudioCache.count = 0;
+      serviceWorkerAudioCache.trackIds.clear();
+      renderAudioCacheStatus();
+      return true;
+    }
     const registration = await navigator.serviceWorker.register("/jukebox-sw.js", { scope: "/" });
     serviceWorkerAudioCache.registration = registration;
     await navigator.serviceWorker.ready;
@@ -3115,7 +3137,7 @@ async function initializeServiceWorkerAudioCache(generation) {
       if (available) budget = Math.min(budget, Math.floor(available * 0.9));
     }
     serviceWorkerAudioCache.limit = budget;
-    postServiceWorkerAudioCache({ type: "configure", generation, ticket: state.streamTicket, budget });
+    postServiceWorkerAudioCache({ type: "configure", generation, ticket: state.streamTicket, budget, networkOnly: IOS_STANDALONE_MEDIA });
     postServiceWorkerAudioCache({ type: "status" });
     return true;
   } catch (_error) {
@@ -3136,7 +3158,8 @@ function scheduleServiceWorkerAudioCache(delay = 250) {
       type: "configure",
       generation: state.cacheGeneration,
       ticket: state.streamTicket,
-      budget: serviceWorkerAudioCache.limit
+      budget: serviceWorkerAudioCache.limit,
+      networkOnly: IOS_STANDALONE_MEDIA
     });
     postServiceWorkerAudioCache({
       type: "cache-tracks",

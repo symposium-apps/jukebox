@@ -52,6 +52,8 @@ Lock-screen and Dynamic Island play/pause use WebKit's native media-element tran
 
 The browser caches the complete current track and preloads the next queued track in private browser storage. A 500 MB maximum, browser-quota awareness, and least-recently-used eviction bound the cache. Cached audio is generation-bound to the configured password and is cleared when that generation changes; unsupported browsers continue using range streaming.
 
+On an iPhone or iPad home-screen installation, Jukebox unregisters the audio cache worker and keeps native media requests on WebKit's direct authenticated HTTP range path. A worker that still controls the current page is first placed in a persisted network-only mode; after the PWA fully closes, its next launch has no media fetch worker between iOS and the server.
+
 Remote requests authenticate with:
 
 ```http
