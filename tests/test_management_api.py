@@ -4,6 +4,7 @@ import base64
 from contextlib import ExitStack
 import hashlib
 import http.client
+import io
 import json
 import os
 import socket
@@ -17,6 +18,8 @@ import urllib.parse
 import wave
 from pathlib import Path
 from unittest import mock
+
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +102,27 @@ class ManagementApiTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b'<link rel="icon" href="/favicon-32x32.png?v=20260720-1" type="image/png" sizes="32x32">', page)
         self.assertIn(b'<link rel="shortcut icon" href="/favicon-v2.ico">', page)
+        self.assertIn(b'<link rel="manifest" href="/manifest.webmanifest">', page)
+        self.assertIn(b'<meta name="apple-mobile-web-app-capable" content="yes">', page)
+        self.assertIn(b'<meta name="apple-mobile-web-app-title" content="Jukebox">', page)
+        status, headers, manifest_raw = self.request("GET", "/manifest.webmanifest")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "application/manifest+json; charset=utf-8")
+        manifest = json.loads(manifest_raw)
+        self.assertEqual(manifest["id"], "/")
+        self.assertEqual(manifest["start_url"], "/")
+        self.assertEqual(manifest["scope"], "/")
+        self.assertEqual(manifest["display"], "standalone")
+        self.assertEqual(manifest["name"], "Jukebox")
+        self.assertEqual({icon["purpose"] for icon in manifest["icons"]}, {"any", "maskable"})
+        self.assertEqual(self.request("GET", "/manifest.json")[0], 200)
+        for path, expected_size in (("/pwa-icon-192.png", (192, 192)), ("/pwa-icon-512.png", (512, 512)), ("/pwa-maskable-512.png", (512, 512))):
+            icon_status, icon_headers, icon_raw = self.request("GET", path)
+            self.assertEqual(icon_status, 200)
+            self.assertEqual(icon_headers["Content-Type"], "image/png")
+            icon = Image.open(io.BytesIO(icon_raw)).convert("RGBA")
+            self.assertEqual(icon.size, expected_size)
+            self.assertEqual(icon.getpixel((0, 0))[3], 255 if "maskable" in path else 0)
         status, headers, favicon = self.request("GET", "/favicon-v2.ico")
         self.assertEqual(status, 200)
         self.assertEqual(headers["Content-Type"], "image/x-icon")
@@ -124,6 +148,7 @@ class ManagementApiTest(unittest.TestCase):
         status, _, login_page = self.request("GET", "/")
         self.assertEqual(status, 401)
         self.assertIn(b'<link rel="icon" href="/favicon-32x32.png?v=20260720-1" type="image/png" sizes="32x32">', login_page)
+        self.assertIn(b'<link rel="manifest" href="/manifest.webmanifest">', login_page)
         self.assertIn(b"jukebox.browser-session.v1", login_page)
         self.assertNotIn(b"localStorage.setItem(storageKey, password", login_page)
         wrong = self.json_request("GET", "/api/v1/context", password="wrong")

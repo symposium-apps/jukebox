@@ -5,8 +5,15 @@ HTML = r"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Jukebox</title>
+  <meta name="application-name" content="Jukebox">
+  <meta name="theme-color" content="#050507">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Jukebox">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/favicon-32x32.png?v=20260720-1" type="image/png" sizes="32x32"><link rel="shortcut icon" href="/favicon-v2.ico"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260720-1" sizes="180x180">
   <style>
     :root {

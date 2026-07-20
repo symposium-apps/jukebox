@@ -72,13 +72,17 @@ SESSION_COOKIE = "jukebox_session"
 SESSION_TTL_SECONDS = 180 * 24 * 60 * 60
 STREAM_TICKET_TTL_SECONDS = 12 * 60 * 60
 SESSION_KEY_FILE = HOME / "browser-session.key"
-APP_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+APP_ASSETS_DIR = Path(__file__).resolve().parent / "static"
 APP_ICON_PATH = APP_ASSETS_DIR / "icon.svg"
+PWA_MANIFEST_PATH = APP_ASSETS_DIR / "manifest.webmanifest"
 BROWSER_ICON_PATHS = {
     "/favicon.ico": (APP_ASSETS_DIR / "favicon.ico", "image/x-icon"),
     "/favicon-v2.ico": (APP_ASSETS_DIR / "favicon.ico", "image/x-icon"),
     "/favicon-32x32.png": (APP_ASSETS_DIR / "favicon-32x32.png", "image/png"),
     "/apple-touch-icon.png": (APP_ASSETS_DIR / "apple-touch-icon.png", "image/png"),
+    "/pwa-icon-192.png": (APP_ASSETS_DIR / "pwa-icon-192.png", "image/png"),
+    "/pwa-icon-512.png": (APP_ASSETS_DIR / "pwa-icon-512.png", "image/png"),
+    "/pwa-maskable-512.png": (APP_ASSETS_DIR / "pwa-maskable-512.png", "image/png"),
 }
 
 LOCK = threading.RLock()
@@ -292,8 +296,8 @@ def create_browser_session(password: str) -> str:
 def login_gate(error: bool = False) -> str:
     error_markup = '<p class="error">That password was not accepted.</p>' if error else ""
     return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Unlock Jukebox</title><link rel="icon" href="/favicon-32x32.png?v=20260720-1" type="image/png" sizes="32x32"><link rel="shortcut icon" href="/favicon-v2.ico"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260720-1" sizes="180x180"><style>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Unlock Jukebox</title><meta name="application-name" content="Jukebox"><meta name="theme-color" content="#050507"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Jukebox"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/favicon-32x32.png?v=20260720-1" type="image/png" sizes="32x32"><link rel="shortcut icon" href="/favicon-v2.ico"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260720-1" sizes="180x180"><style>
 :root{{color-scheme:dark}}*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#05050a;color:#f7f4ff;font-family:Manrope,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px}}
 .gate{{width:min(420px,100%);border:1px solid #27202f;border-radius:16px;background:#0d0a12;padding:32px;box-shadow:0 24px 80px rgba(0,0,0,.5)}}
 .mark{{display:flex;gap:7px;align-items:center;height:42px;margin-bottom:24px}}.mark i{{display:block;width:7px;border-radius:7px}}.mark i:nth-child(1){{height:18px;background:#fbbf24}}.mark i:nth-child(2){{height:34px;background:#fb923c}}.mark i:nth-child(3){{height:42px;background:#f43f5e}}.mark i:nth-child(4){{height:28px;background:#e879f9}}.mark i:nth-child(5){{height:14px;background:#c084fc}}
@@ -2367,6 +2371,16 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/_sym/health":
                 self.send_json({"ok": True, "status": "healthy", "version": __version__})
+                return
+            if path in {"/manifest.webmanifest", "/manifest.json"}:
+                data = PWA_MANIFEST_PATH.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
+                self.send_header("Cache-Control", "public, max-age=0, must-revalidate")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
                 return
             if path in BROWSER_ICON_PATHS:
                 icon_path, content_type = BROWSER_ICON_PATHS[path]

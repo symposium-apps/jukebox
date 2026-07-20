@@ -48,7 +48,9 @@ Mobile embedded browsers that block all third-party cookies stream audio and art
 
 Supported browsers receive current-track title, artist, album, artwork, playback state, position, and transport controls through the Media Session API for lock-screen, Control Center, and system media surfaces.
 
-Lock-screen and Dynamic Island play/pause use WebKit's native media-element transport instead of JavaScript action handlers, so iOS can resume audio even while the embedded Jukebox page is suspended. Native play/pause events synchronize saved Jukebox state after WebKit acts.
+Jukebox is installable as a first-class PWA from its direct deployment URL. Its public manifest declares a stable origin-root identity, launch URL and scope, standalone presentation, dedicated 192/512 px icons, and a full-bleed maskable icon. Apple home-screen metadata is present on both the login gate and application page. Media Session has no launch-URL field, so the manifest provides the app identity available to the browser and operating system; after an identity change, remove the old home-screen installation and install Jukebox again.
+
+Lock-screen and Dynamic Island play/pause use WebKit's native media-element transport instead of JavaScript action handlers. Native play/pause events synchronize saved Jukebox state after WebKit acts.
 
 The browser caches the complete current track and preloads the next queued track in private browser storage. A 500 MB maximum, browser-quota awareness, and least-recently-used eviction bound the cache. Cached audio is generation-bound to the configured password and is cleared when that generation changes; unsupported browsers continue using range streaming.
 
