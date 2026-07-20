@@ -3306,6 +3306,7 @@ function updateScrubber() {
   if (!state.scrubbing) {
     qs("scrubSlider").value = duration ? String(Math.round((current / duration) * 1000)) : "0";
   }
+  updateMediaSessionPosition();
 }
 
 function isBrowserPlaybackMode() {
@@ -3366,6 +3367,76 @@ function pauseWebAudio() {
   qs("webAudio").pause();
   state.playback.paused = true;
   saveBrowserPlayback(true);
+}
+
+function mediaSessionArtwork(track) {
+  const paths = [track?.album_cover, track?.album_cover_pixel, track?.album_cover_lcd]
+    .filter((path, index, items) => path && items.indexOf(path) === index);
+  return paths.map(path => ({ src: new URL(assetUrl(path), window.location.href).href }));
+}
+
+function updateMediaSessionMetadata() {
+  if (!("mediaSession" in navigator) || !("MediaMetadata" in window)) return;
+  const track = state.status?.current_track;
+  if (!track) {
+    navigator.mediaSession.metadata = null;
+    navigator.mediaSession.playbackState = "none";
+    return;
+  }
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: String(track.name || track.title || track.filename || "Unknown Track"),
+    artist: artistName(track) || "Jukebox",
+    album: albumName(track) || state.playback.queueName || "Jukebox",
+    artwork: mediaSessionArtwork(track)
+  });
+  navigator.mediaSession.playbackState = isPlaybackPaused() ? "paused" : "playing";
+}
+
+function updateMediaSessionPosition() {
+  if (!("mediaSession" in navigator) || typeof navigator.mediaSession.setPositionState !== "function") return;
+  const audio = qs("webAudio");
+  if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
+  try {
+    navigator.mediaSession.setPositionState({
+      duration: audio.duration,
+      playbackRate: audio.playbackRate || 1,
+      position: Math.max(0, Math.min(audio.currentTime || 0, audio.duration))
+    });
+  } catch (_error) {}
+}
+
+function configureMediaSession() {
+  if (!("mediaSession" in navigator)) return;
+  const handlers = {
+    play: () => {
+      const current = state.status?.current_track;
+      if (current) playWebAudio(current.id).catch(error => msg(error.message));
+    },
+    pause: pauseWebAudio,
+    previoustrack: () => stepPlayback(-1).catch(error => msg(error.message)),
+    nexttrack: () => stepPlayback(1).catch(error => msg(error.message)),
+    seekbackward: details => {
+      const audio = qs("webAudio");
+      audio.currentTime = Math.max(0, audio.currentTime - Number(details.seekOffset || 10));
+    },
+    seekforward: details => {
+      const audio = qs("webAudio");
+      audio.currentTime = Math.min(audio.duration || Infinity, audio.currentTime + Number(details.seekOffset || 10));
+    },
+    seekto: details => {
+      const audio = qs("webAudio");
+      if (!Number.isFinite(details.seekTime)) return;
+      if (details.fastSeek && typeof audio.fastSeek === "function") audio.fastSeek(details.seekTime);
+      else audio.currentTime = details.seekTime;
+    },
+    stop: () => {
+      pauseWebAudio();
+      qs("webAudio").currentTime = 0;
+    }
+  };
+  Object.entries(handlers).forEach(([action, handler]) => {
+    try { navigator.mediaSession.setActionHandler(action, handler); } catch (_error) {}
+  });
 }
 
 function actionQueue(action) {
@@ -3481,6 +3552,7 @@ function renderStatus() {
     ? `VPS ${fmtSize(storage.used)} used / ${fmtSize(storage.total)} total | ${fmtSize(storage.free)} free | Jukebox ${fmtSize(storage.jukebox)}`
     : "Storage unknown";
   qs("backendText").textContent = `${usedPercent}% full | ${state.tracks.length} files | ${state.playlists.length} playlists | browser audio`;
+  updateMediaSessionMetadata();
 }
 
 function sectionBlock(title, meta, body) {
@@ -3969,6 +4041,8 @@ async function stepPlayback(direction) {
   await playTrack(nextId, currentQueueIds(), state.status?.state?.queue_name || "Queue");
 }
 
+configureMediaSession();
+
 qs("prevBtn").addEventListener("click", () => stepPlayback(-1).catch(error => msg(error.message)));
 
 qs("nextBtn").addEventListener("click", () => stepPlayback(1).catch(error => msg(error.message)));
@@ -4010,6 +4084,9 @@ qs("webAudio").addEventListener("ended", () => {
 qs("webAudio").addEventListener("error", () => {
   msg("Browser audio could not load that track");
 });
+
+qs("webAudio").addEventListener("play", updateMediaSessionMetadata);
+qs("webAudio").addEventListener("pause", updateMediaSessionMetadata);
 
 qs("webAudio").addEventListener("loadedmetadata", () => {
   const audio = qs("webAudio");

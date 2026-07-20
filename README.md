@@ -46,6 +46,8 @@ After a successful browser login, Jukebox stores a signed persistent session in 
 
 Mobile embedded browsers that block all third-party cookies stream audio and artwork with a short-lived, read-only browser stream ticket. The ticket is password-generation-bound, expires automatically, cannot call management APIs, and is redacted from Jukebox request logs.
 
+Supported browsers receive current-track title, artist, album, artwork, playback state, position, and transport controls through the Media Session API for lock-screen, Control Center, and system media surfaces.
+
 Remote requests authenticate with:
 
 ```http
