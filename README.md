@@ -54,6 +54,8 @@ The browser caches the complete current track and preloads the next queued track
 
 On an iPhone or iPad home-screen installation, Jukebox unregisters the audio cache worker and keeps native media requests on WebKit's direct authenticated HTTP range path. A worker that still controls the current page is first placed in a persisted network-only mode; after the PWA fully closes, its next launch has no media fetch worker between iOS and the server.
 
+If iOS resumes the lock-screen timeline but leaves playback silent, Jukebox reconstructs the current direct-stream media resource inside the hidden PWA's native Play event. The new decoder starts at the preserved playback position rather than restarting the song.
+
 Remote requests authenticate with:
 
 ```http

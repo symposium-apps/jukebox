@@ -3899,6 +3899,44 @@ function pauseWebAudio() {
   updateMediaSessionMetadata();
 }
 
+let iosAudioOutputRecovery = false;
+
+function recoverSilentIosAudioOutput() {
+  const current = state.status?.current_track;
+  const audio = qs("webAudio");
+  if (!IOS_STANDALONE_MEDIA || document.visibilityState !== "hidden" || iosAudioOutputRecovery
+      || !state.playback.paused || !current || !audio.currentSrc) return false;
+  const position = Number.isFinite(audio.currentTime) ? audio.currentTime : Number(state.playback.position || 0);
+  iosAudioOutputRecovery = true;
+  state.playback.position = position;
+  saveBrowserPlayback(true);
+  try {
+    // iOS can resume the media clock while leaving the decoder/output route
+    // silent. Reconstructing the native media resource inside that Play event
+    // forces a fresh decoder and audio session without losing the position.
+    audio.pause();
+    releaseWebAudioObjectUrl();
+    audio.removeAttribute("src");
+    audio.load();
+    audio.src = mediaUrl(current.id);
+    audio.load();
+    state.webAudioTrackId = String(current.id);
+    state.webAudioSource = "stream";
+    const pending = audio.play();
+    Promise.resolve(pending).catch(error => {
+      state.playback.paused = true;
+      updateMediaSessionMetadata();
+      msg(error.message || "Unable to restore iPhone audio output");
+    }).finally(() => { iosAudioOutputRecovery = false; });
+  } catch (error) {
+    iosAudioOutputRecovery = false;
+    state.playback.paused = true;
+    updateMediaSessionMetadata();
+    msg(error.message || "Unable to restore iPhone audio output");
+  }
+  return true;
+}
+
 function mediaSessionArtwork(track) {
   const paths = [track?.album_cover, track?.album_cover_pixel, track?.album_cover_lcd]
     .filter((path, index, items) => path && items.indexOf(path) === index);
@@ -4638,6 +4676,7 @@ qs("webAudio").addEventListener("error", () => {
 });
 
 qs("webAudio").addEventListener("play", () => {
+  if (recoverSilentIosAudioOutput()) return;
   state.playback.paused = false;
   syncStatusFromBrowser();
   saveBrowserPlayback(true);
