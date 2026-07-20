@@ -312,6 +312,8 @@ class StartupCompatibilityTest(unittest.TestCase):
         self.assertIn("scheduleServiceWorkerAudioCache", page)
         for action in ("play", "pause", "previoustrack", "nexttrack", "seekbackward", "seekforward", "seekto", "stop"):
             self.assertIn(f"{action}:", page)
+        self.assertIn("play: resumeWebAudioFromMediaSession", page)
+        self.assertIn("const pending = audio.play();", page)
 
     def test_browser_player_caches_current_and_next_audio_with_bounded_lru(self) -> None:
         page = (Path(__file__).resolve().parents[1] / "jukebox" / "manage.html").read_text(encoding="utf-8-sig")

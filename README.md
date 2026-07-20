@@ -46,7 +46,7 @@ After a successful browser login, Jukebox stores a signed persistent session in 
 
 Mobile embedded browsers that block all third-party cookies stream audio and artwork with a short-lived, read-only browser stream ticket. The ticket is password-generation-bound, expires automatically, cannot call management APIs, and is redacted from Jukebox request logs.
 
-Supported browsers receive current-track title, artist, album, artwork, playback state, position, and transport controls through the Media Session API for lock-screen, Control Center, and system media surfaces.
+Supported browsers receive current-track title, artist, album, artwork, playback state, position, and transport controls through the Media Session API for lock-screen, Control Center, and system media surfaces. Same-track system resume calls the loaded audio element synchronously without reloading its source.
 
 The browser caches the complete current track and preloads the next queued track in private browser storage. A 500 MB maximum, browser-quota awareness, and least-recently-used eviction bound the cache. Cached audio is generation-bound to the configured password and is cleared when that generation changes; unsupported browsers continue using range streaming.
 
