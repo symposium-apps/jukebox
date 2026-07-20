@@ -314,6 +314,9 @@ class StartupCompatibilityTest(unittest.TestCase):
             self.assertIn(f"{action}:", page)
         self.assertIn("play: resumeWebAudioFromMediaSession", page)
         self.assertIn("const pending = audio.play();", page)
+        self.assertLess(page.index("const pending = audio.play();"), page.index("Promise.resolve(pending)"))
+        self.assertIn('qs("webAudio").addEventListener("play", () => {', page)
+        self.assertIn('qs("webAudio").addEventListener("pause", () => {', page)
 
     def test_browser_player_caches_current_and_next_audio_with_bounded_lru(self) -> None:
         page = (Path(__file__).resolve().parents[1] / "jukebox" / "manage.html").read_text(encoding="utf-8-sig")

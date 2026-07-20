@@ -3886,6 +3886,9 @@ function resumeWebAudioFromMediaSession() {
     return;
   }
   try {
+    // Keep this call synchronous inside the Media Session callback. Mobile
+    // WebKit may only grant the suspended iframe a narrow native resume window;
+    // awaiting cache/source work before play() can consume that window.
     const pending = audio.play();
     state.playback.paused = false;
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
@@ -4641,8 +4644,21 @@ qs("webAudio").addEventListener("error", () => {
   msg("Browser audio could not load that track");
 });
 
-qs("webAudio").addEventListener("play", updateMediaSessionMetadata);
-qs("webAudio").addEventListener("pause", updateMediaSessionMetadata);
+qs("webAudio").addEventListener("play", () => {
+  state.playback.paused = false;
+  syncStatusFromBrowser();
+  saveBrowserPlayback(true);
+  updateMediaSessionMetadata();
+  renderStatus();
+});
+
+qs("webAudio").addEventListener("pause", () => {
+  state.playback.paused = true;
+  syncStatusFromBrowser();
+  saveBrowserPlayback(true);
+  updateMediaSessionMetadata();
+  renderStatus();
+});
 
 qs("webAudio").addEventListener("loadedmetadata", () => {
   const audio = qs("webAudio");
