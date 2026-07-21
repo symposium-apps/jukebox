@@ -2942,7 +2942,7 @@
 
   <footer class="playerbar">
     <div class="player-track">
-      <img id="playerCover" class="player-cover" alt="" hidden>
+      <img id="playerCover" class="player-cover" data-artwork-fallback="playerFallback" alt="" hidden>
       <div id="playerFallback" class="player-fallback" aria-hidden="true"><svg viewBox="0 0 40 40"><rect x="3" y="15" width="4.4" height="10" rx="2.2" fill="#fbbf24"/><rect x="10" y="8.5" width="4.4" height="23" rx="2.2" fill="#fb923c"/><rect x="17" y="3" width="4.4" height="34" rx="2.2" fill="#f43f5e"/><rect x="24" y="11" width="4.4" height="18" rx="2.2" fill="#e879f9"/><rect x="31" y="17" width="4.4" height="6" rx="2.2" fill="#c084fc"/></svg></div>
       <div class="player-copy">
         <strong id="playerTitle">Nothing Playing</strong>
@@ -4451,7 +4451,6 @@ function renderStatus() {
   const currentCover = current ? albumCoverForTrack(current) : "";
   qs("playerCover").hidden = !currentCover;
   qs("playerCover").dataset.artworkPath = normalizedArtworkPath(currentCover);
-  qs("playerCover").dataset.artworkFallback = "playerFallback";
   qs("playerCover").src = currentCover ? artworkUrl(currentCover) : "";
   qs("playerFallback").hidden = !!currentCover;
   buttonLabel("playPauseBtn", iconSvg(paused ? "play" : "pause"), paused ? "Resume" : "Pause");
