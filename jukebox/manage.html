@@ -4673,17 +4673,19 @@ async function refresh({ keepMessage = false } = {}) {
   state.playlists = playlists.playlists || [];
   state.playback.queue = state.playback.queue.filter(id => state.tracks.some(track => String(track.id) === String(id)));
   syncStatusFromBrowser();
+  // Attach the direct media source before publishing Media Session state. Cache
+  // setup remains background-only so storage failures cannot block startup.
+  await prepareStoredAudio();
   if (state.view.type === "playlist" && !playlistBySlug(state.view.slug)) state.view = { type: "playlists" };
   if (state.view.type === "album" && !albums().find(item => item.name === state.view.name)) state.view = { type: "albums" };
   render();
   if (!keepMessage) msg("Ready");
-  Promise.all([
-    initializeAudioCache(state.cacheGeneration),
-    initializeArtworkCache(state.cacheGeneration)
-  ]).then(async () => {
-    await Promise.all([primeArtworkCache(), reconcileAudioCache()]);
-    await prepareStoredAudio();
+  initializeAudioCache(state.cacheGeneration).then(async () => {
+    await reconcileAudioCache();
     scheduleAudioCaching();
+  }).catch(() => {});
+  initializeArtworkCache(state.cacheGeneration).then(async () => {
+    await primeArtworkCache();
     render();
   }).catch(() => {});
 }
