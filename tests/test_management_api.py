@@ -391,9 +391,10 @@ class StartupCompatibilityTest(unittest.TestCase):
         self.assertNotIn('<rect width="512" height="512"', page)
         self.assertIn("window.setTimeout(hideAppLoader, 1500)", page)
         refresh_source = page[page.index("async function refresh("):page.index("async function refreshStreamAccess")]
+        self.assertIn("await initializeAudioCache(state.cacheGeneration)", refresh_source)
         self.assertIn("await prepareStoredAudio()", refresh_source)
-        self.assertNotIn("await initializeAudioCache(state.cacheGeneration)", refresh_source)
-        self.assertIn("initializeAudioCache(state.cacheGeneration).then", refresh_source)
+        self.assertLess(refresh_source.index("await initializeAudioCache"), refresh_source.index("await prepareStoredAudio()"))
+        self.assertLess(refresh_source.index("await prepareStoredAudio()"), refresh_source.index("render();"))
         self.assertIn("initializeArtworkCache(state.cacheGeneration).then", refresh_source)
         self.assertIn("}).finally(hideAppLoader);", page)
 

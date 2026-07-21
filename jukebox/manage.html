@@ -4668,22 +4668,21 @@ async function refresh({ keepMessage = false } = {}) {
   state.streamTicket = String(streamAccess.ticket || "");
   state.streamTicketExpires = Number(streamAccess.expires || 0);
   state.cacheGeneration = String(streamAccess.cache_generation || "");
+  // Finish the iOS direct-network/service-worker transition before assigning
+  // any media source. Attaching audio first lets a stale worker own the request.
+  await initializeAudioCache(state.cacheGeneration);
   state.status = status;
   state.tracks = library.tracks || [];
   state.playlists = playlists.playlists || [];
+  await reconcileAudioCache();
   state.playback.queue = state.playback.queue.filter(id => state.tracks.some(track => String(track.id) === String(id)));
   syncStatusFromBrowser();
-  // Attach the direct media source before publishing Media Session state. Cache
-  // setup remains background-only so storage failures cannot block startup.
   await prepareStoredAudio();
+  scheduleAudioCaching();
   if (state.view.type === "playlist" && !playlistBySlug(state.view.slug)) state.view = { type: "playlists" };
   if (state.view.type === "album" && !albums().find(item => item.name === state.view.name)) state.view = { type: "albums" };
   render();
   if (!keepMessage) msg("Ready");
-  initializeAudioCache(state.cacheGeneration).then(async () => {
-    await reconcileAudioCache();
-    scheduleAudioCaching();
-  }).catch(() => {});
   initializeArtworkCache(state.cacheGeneration).then(async () => {
     await primeArtworkCache();
     render();
