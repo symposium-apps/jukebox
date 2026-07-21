@@ -2733,15 +2733,18 @@
       .main-panel.detail-view .folder-cover { display: block; width: 150px; height: 150px; }
     }
     @media (max-width: 560px) {
-      .app { height: 100dvh; grid-template-rows: 64px minmax(0,1fr) 84px; }
+      .app {
+        height: 100dvh;
+        grid-template-rows: calc(64px + env(safe-area-inset-top, 0px)) minmax(0,1fr) calc(84px + env(safe-area-inset-bottom, 0px));
+      }
       .topbar {
         position: relative;
-        height: 64px;
+        height: calc(64px + env(safe-area-inset-top, 0px));
         display: grid;
         grid-template-columns: 40px minmax(0,1fr);
         align-items: center;
         gap: 8px;
-        padding: 0 10px;
+        padding: env(safe-area-inset-top, 0px) max(10px, env(safe-area-inset-right, 0px)) 0 max(10px, env(safe-area-inset-left, 0px));
       }
       .brand { width: 40px; justify-content: center; }
       .brand > span:last-child { display: none; }
@@ -2803,7 +2806,11 @@
       .card-grid { grid-template-columns: repeat(2,minmax(0,1fr)); column-gap: 16px; row-gap: 22px; }
       .track-row { grid-template-columns: 24px minmax(0,1fr) 58px; }
       .track-cover, .track-kind { display: none; }
-      .playerbar { height: 84px; gap: 10px; padding: 10px 14px; }
+      .playerbar {
+        height: calc(84px + env(safe-area-inset-bottom, 0px));
+        gap: 10px;
+        padding: 10px max(14px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px));
+      }
       .player-cover, .player-fallback { width: 48px; height: 48px; }
       .control-button { width: 34px; min-width: 34px; height: 34px; }
       .round-control { width: 42px; height: 42px; }
@@ -3685,6 +3692,7 @@ const artworkCache = {
   db: null,
   urls: new Map(),
   pending: new Map(),
+  failures: new Map(),
   renderTimer: 0
 };
 
@@ -3748,6 +3756,8 @@ function artworkBlobFromEntry(entry) {
 
 async function clearArtworkCache({ generation = artworkCache.generation } = {}) {
   clearTimeout(artworkCache.renderTimer);
+  artworkCache.failures.forEach(item => clearTimeout(item.timer));
+  artworkCache.failures.clear();
   revokeArtworkUrls();
   artworkCache.pending.clear();
   if (artworkCache.db) {
@@ -3846,13 +3856,23 @@ async function cacheArtwork(path, { scheduleRender = true } = {}) {
       URL.revokeObjectURL(url);
       return "";
     }
+    const failure = artworkCache.failures.get(path);
+    if (failure) clearTimeout(failure.timer);
+    artworkCache.failures.delete(path);
     artworkCache.urls.set(path, url);
     if (scheduleRender) scheduleArtworkRender();
     return url;
   })().catch(() => {
     const fallback = assetUrl(path);
-    artworkCache.urls.set(path, fallback);
-    if (scheduleRender) scheduleArtworkRender();
+    const attempts = Number(artworkCache.failures.get(path)?.attempts || 0) + 1;
+    const delay = Math.min(30000, 1000 * (2 ** Math.min(attempts - 1, 5)));
+    const failure = { attempts, retryAt: Date.now() + delay, timer: 0 };
+    const timer = window.setTimeout(() => {
+      failure.retryAt = 0;
+      scheduleArtworkRender();
+    }, delay);
+    failure.timer = timer;
+    artworkCache.failures.set(path, failure);
     return fallback;
   }).finally(() => artworkCache.pending.delete(path));
   artworkCache.pending.set(path, pending);
@@ -3865,8 +3885,26 @@ function artworkUrl(path) {
   if (!artworkCache.supported) return assetUrl(path);
   const cached = artworkCache.urls.get(path);
   if (cached) return cached;
+  const failure = artworkCache.failures.get(path);
+  if (failure && failure.retryAt > Date.now()) return assetUrl(path);
   cacheArtwork(path);
   return assetUrl(path);
+}
+
+function handleArtworkElementError(image) {
+  const path = normalizedArtworkPath(image?.dataset?.artworkPath);
+  if (!path) return;
+  image.hidden = true;
+  const fallbackId = image.dataset.artworkFallback || "";
+  if (fallbackId) {
+    const fallback = document.getElementById(fallbackId) || image.parentElement?.querySelector(`.${fallbackId}`);
+    if (fallback) fallback.hidden = false;
+  }
+  const cached = artworkCache.urls.get(path);
+  if (cached?.startsWith("blob:")) URL.revokeObjectURL(cached);
+  artworkCache.urls.delete(path);
+  const failure = artworkCache.failures.get(path);
+  if (!failure || failure.retryAt <= Date.now()) cacheArtwork(path).catch(() => {});
 }
 
 function artworkPathsFromLibrary() {
@@ -4388,7 +4426,7 @@ function renderRail() {
   rail.innerHTML = state.playlists.map(item => {
     const cover = item.cover || item.cover_lcd || item.cover_source;
     const image = cover
-      ? `<img src="${escapeHtml(artworkUrl(cover))}" alt="">`
+      ? `<img src="${escapeHtml(artworkUrl(cover))}" data-artwork-path="${escapeHtml(normalizedArtworkPath(cover))}" data-artwork-fallback="mini-fallback" alt=""><span class="mini-fallback" hidden>PL</span>`
       : `<span class="mini-fallback">PL</span>`;
     return `
       <div class="playlist-mini" data-open="playlist:${escapeHtml(item.slug)}">
@@ -4412,6 +4450,8 @@ function renderStatus() {
     : "Select a track, album, or playlist";
   const currentCover = current ? albumCoverForTrack(current) : "";
   qs("playerCover").hidden = !currentCover;
+  qs("playerCover").dataset.artworkPath = normalizedArtworkPath(currentCover);
+  qs("playerCover").dataset.artworkFallback = "playerFallback";
   qs("playerCover").src = currentCover ? artworkUrl(currentCover) : "";
   qs("playerFallback").hidden = !!currentCover;
   buttonLabel("playPauseBtn", iconSvg(paused ? "play" : "pause"), paused ? "Resume" : "Pause");
@@ -4436,7 +4476,7 @@ function sectionBlock(title, meta, body) {
 
 function mediaCard({ name, sub, open, count, cover, checkKind, checkValue, fallback = "AL", playAction = "" }) {
   const art = cover
-    ? `<img class="card-cover" src="${escapeHtml(artworkUrl(cover))}" alt="">`
+    ? `<img class="card-cover" src="${escapeHtml(artworkUrl(cover))}" data-artwork-path="${escapeHtml(normalizedArtworkPath(cover))}" data-artwork-fallback="card-fallback" alt=""><div class="card-fallback" hidden>${escapeHtml(fallback)}</div>`
     : `<div class="card-fallback">${escapeHtml(fallback)}</div>`;
   const checkbox = checkKind && checkValue
     ? `<input class="card-check" data-${escapeHtml(checkKind)}-check type="checkbox" value="${escapeHtml(checkValue)}" aria-label="Select ${escapeHtml(name)}">`
@@ -4464,7 +4504,7 @@ function trackRow(track) {
   ].filter(Boolean).join(" / ");
   const cover = albumCoverForTrack(track);
   const icon = cover
-    ? `<img class="track-cover" src="${escapeHtml(artworkUrl(cover))}" alt="">`
+    ? `<img class="track-cover" src="${escapeHtml(artworkUrl(cover))}" data-artwork-path="${escapeHtml(normalizedArtworkPath(cover))}" alt="">`
     : `<span class="track-cover"></span>`;
   return `
     <article class="track-row ${playing ? "playing" : ""}" data-track-row="${escapeHtml(track.id)}" data-selectable>
@@ -4565,6 +4605,9 @@ function renderRows() {
   mainPanel.classList.toggle("detail-view", !!cover);
   mainPanel.style.setProperty("--hero-art", cover ? `url("${cover.replace(/"/g, "%22")}")` : "none");
   qs("folderCover").hidden = !cover;
+  qs("folderCover").dataset.artworkPath = normalizedArtworkPath(activePlaylist
+    ? activePlaylist.cover || activePlaylist.cover_lcd || activePlaylist.cover_source
+    : activeAlbum?.cover || "");
   qs("folderCover").src = cover || "";
   const hasVisibleContent = state.view.type === "root"
     || (state.view.type === "playlists" && state.playlists.length > 0)
@@ -4992,6 +5035,12 @@ qs("webAudio").addEventListener("ended", () => {
 qs("webAudio").addEventListener("error", () => {
   msg("Browser audio could not load that track");
 });
+
+document.addEventListener("error", event => {
+  if (event.target instanceof HTMLImageElement && event.target.dataset.artworkPath) {
+    handleArtworkElementError(event.target);
+  }
+}, true);
 
 qs("webAudio").addEventListener("play", () => {
   if (recoverSilentIosAudioOutput()) return;

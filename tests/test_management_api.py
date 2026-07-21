@@ -398,6 +398,23 @@ class StartupCompatibilityTest(unittest.TestCase):
         self.assertIn("initializeArtworkCache(state.cacheGeneration).then", refresh_source)
         self.assertIn("}).finally(hideAppLoader);", page)
 
+    def test_mobile_layout_respects_device_safe_areas_and_artwork_retries(self) -> None:
+        page = (Path(__file__).resolve().parents[1] / "jukebox" / "manage.html").read_text(encoding="utf-8-sig")
+        for marker in (
+            "env(safe-area-inset-top, 0px)",
+            "env(safe-area-inset-bottom, 0px)",
+            "env(safe-area-inset-left, 0px)",
+            "env(safe-area-inset-right, 0px)",
+            "failures: new Map()",
+            "artworkCache.failures.delete(path)",
+            "Math.min(30000, 1000 * (2 ** Math.min(attempts - 1, 5)))",
+            "function handleArtworkElementError(image)",
+            'event.target instanceof HTMLImageElement && event.target.dataset.artworkPath',
+            'data-artwork-fallback="playerFallback"',
+        ):
+            self.assertIn(marker, page)
+        self.assertNotIn("artworkCache.urls.set(path, fallback)", page)
+
     def test_browser_player_caches_current_and_next_audio_with_bounded_lru(self) -> None:
         page = (Path(__file__).resolve().parents[1] / "jukebox" / "manage.html").read_text(encoding="utf-8-sig")
         worker = (Path(__file__).resolve().parents[1] / "jukebox" / "jukebox-sw.js").read_text(encoding="utf-8")
