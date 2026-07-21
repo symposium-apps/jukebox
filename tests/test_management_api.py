@@ -411,6 +411,7 @@ class StartupCompatibilityTest(unittest.TestCase):
             "function handleArtworkElementError(image)",
             'event.target instanceof HTMLImageElement && event.target.dataset.artworkPath',
             'data-artwork-fallback="playerFallback"',
+            "[hidden] { display: none !important; }",
         ):
             self.assertIn(marker, page)
         self.assertNotIn("artworkCache.urls.set(path, fallback)", page)
