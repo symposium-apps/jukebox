@@ -10,7 +10,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 
 ALLOWED_SOURCE_HOSTS = {
@@ -37,18 +37,32 @@ class ImportCancelled(Exception):
     pass
 
 
+YOUTUBE_NETWORK_BLOCKED_MESSAGE = (
+    "YouTube is blocking requests from this server. Add an explicitly supplied "
+    "youtube-cookies.txt or youtube-proxy.txt in Jukebox API settings, then try again"
+)
+
+
 class QuietLogger:
+    def __init__(self) -> None:
+        self.youtube_network_blocked = False
+
+    def _classify(self, message: str) -> None:
+        text = str(message or "").casefold()
+        if "sign in to confirm you're not a bot" in text or "sign in to confirm you’re not a bot" in text:
+            self.youtube_network_blocked = True
+
     def debug(self, message: str) -> None:
-        return
+        self._classify(message)
 
     def info(self, message: str) -> None:
         return
 
     def warning(self, message: str) -> None:
-        return
+        self._classify(message)
 
     def error(self, message: str) -> None:
-        return
+        self._classify(message)
 
 
 def validate_source_url(value: object) -> str:
@@ -66,7 +80,54 @@ def validate_source_url(value: object) -> str:
             raise ValueError("This is not a supported YouTube or YouTube Music link")
     elif parsed.path not in {"/watch", "/playlist", "/shorts", "/live"} and not parsed.path.startswith(("/watch/", "/playlist/")):
         raise ValueError("This is not a supported YouTube or YouTube Music link")
+    query = parse_qs(parsed.query)
+    video_id = str((query.get("v") or [""])[0]).strip()
+    playlist_id = str((query.get("list") or [""])[0]).strip()
+    if parsed.path == "/watch" and re.fullmatch(r"[A-Za-z0-9_-]{6,20}", video_id) and playlist_id.startswith("RD"):
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", urlencode({"v": video_id}), ""))
     return url
+
+
+def _private_ytdlp_options() -> dict[str, object]:
+    root = str(os.environ.get("SYM_APP_USER_DATA_DIR") or "").strip()
+    if not root:
+        return {}
+    user_data_root = Path(root).resolve()
+    config_dir = (user_data_root / "Jukebox API").resolve()
+    if not config_dir.is_relative_to(user_data_root):
+        return {}
+    options: dict[str, object] = {}
+    cookie_file = config_dir / "youtube-cookies.txt"
+    if cookie_file.is_file() and not cookie_file.is_symlink():
+        try:
+            cookie_file.chmod(0o600)
+        except OSError:
+            pass
+        options["cookiefile"] = str(cookie_file)
+    proxy_file = config_dir / "youtube-proxy.txt"
+    if proxy_file.is_file() and not proxy_file.is_symlink():
+        try:
+            proxy_file.chmod(0o600)
+            proxy = proxy_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            proxy = ""
+        parsed_proxy = urlparse(proxy)
+        if (
+            len(proxy) <= 4096
+            and not any(character in proxy for character in "\r\n")
+            and parsed_proxy.scheme in {"http", "https", "socks4", "socks5", "socks5h"}
+            and parsed_proxy.hostname
+        ):
+            options["proxy"] = proxy
+    return options
+
+
+def _inspection_failure(logger: QuietLogger, exc: Exception | None = None) -> ValueError:
+    if exc is not None:
+        logger._classify(str(exc))
+    if logger.youtube_network_blocked:
+        return ValueError(YOUTUBE_NETWORK_BLOCKED_MESSAGE)
+    return ValueError("Jukebox could not inspect this link. It may be private, unavailable, or account-restricted")
 
 
 def _load_ydl_class() -> type:
@@ -174,6 +235,7 @@ def _prune_locked() -> None:
 def inspect_source(url: object, *, ydl_class: type | None = None) -> dict[str, Any]:
     source_url = validate_source_url(url)
     YoutubeDL = ydl_class or _load_ydl_class()
+    logger = QuietLogger()
     options: dict[str, Any] = {
         "skip_download": True,
         "quiet": True,
@@ -181,7 +243,8 @@ def inspect_source(url: object, *, ydl_class: type | None = None) -> dict[str, A
         "ignoreerrors": True,
         "extract_flat": "in_playlist",
         "playlistend": MAX_INSPECTION_ITEMS,
-        "logger": QuietLogger(),
+        "logger": logger,
+        **_private_ytdlp_options(),
     }
     if shutil.which("node"):
         options["js_runtimes"] = {"node": {}}
@@ -189,9 +252,9 @@ def inspect_source(url: object, *, ydl_class: type | None = None) -> dict[str, A
         with YoutubeDL(options) as ydl:
             info = ydl.extract_info(source_url, download=False)
     except Exception as exc:
-        raise ValueError("Jukebox could not inspect this link. It may be private, unavailable, or account-restricted") from exc
+        raise _inspection_failure(logger, exc) from exc
     if not isinstance(info, dict):
-        raise ValueError("Jukebox could not inspect this link")
+        raise _inspection_failure(logger)
     raw_entries = info.get("entries")
     if isinstance(raw_entries, list):
         candidates = [item for item in raw_entries[:MAX_INSPECTION_ITEMS] if isinstance(item, dict)]
@@ -548,12 +611,13 @@ def _download_one(job_id: str, item_index: int, *, library_dir: Path, work_root:
             stage = "Downloading artwork"
         _update_item(job_id, item_index, status="processing", stage=stage, progress=None)
 
+    logger = QuietLogger()
     options: dict[str, Any] = {
         "format": "bestaudio/best",
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
-        "logger": QuietLogger(),
+        "logger": logger,
         "paths": {"home": str(work), "temp": str(work)},
         "outtmpl": {"default": "source.%(ext)s", "thumbnail": "source.%(ext)s"},
         "retries": 3,
@@ -567,6 +631,7 @@ def _download_one(job_id: str, item_index: int, *, library_dir: Path, work_root:
             {"key": "FFmpegMetadata", "add_metadata": True},
             *([{"key": "EmbedThumbnail"}] if include_artwork else []),
         ],
+        **_private_ytdlp_options(),
     }
     if shutil.which("node"):
         options["js_runtimes"] = {"node": {}}
@@ -576,6 +641,9 @@ def _download_one(job_id: str, item_index: int, *, library_dir: Path, work_root:
     except ImportCancelled:
         raise
     except Exception as exc:
+        logger._classify(str(exc))
+        if logger.youtube_network_blocked:
+            raise RuntimeError(YOUTUBE_NETWORK_BLOCKED_MESSAGE) from exc
         raise RuntimeError("Download interrupted or unavailable") from exc
     if _job_cancelled(job_id):
         raise ImportCancelled

@@ -72,6 +72,7 @@ USER_DATA_QUOTA_BYTES = int(os.environ.get("JUKEBOX_USER_DATA_QUOTA_BYTES", str(
 SESSION_COOKIE = "jukebox_session"
 SESSION_TTL_SECONDS = 180 * 24 * 60 * 60
 STREAM_TICKET_TTL_SECONDS = 12 * 60 * 60
+DEFAULT_TRUSTED_BROWSER_ORIGINS = {"https://sym.cosmise.com"}
 SESSION_KEY_FILE = HOME / "browser-session.key"
 APP_ASSETS_DIR = Path(__file__).resolve().parent / "static"
 APP_ICON_PATH = APP_ASSETS_DIR / "icon.svg"
@@ -188,6 +189,29 @@ def passwords_match(candidate: str, expected: str) -> bool:
     if not candidate or not expected:
         return False
     return hmac.compare_digest(candidate.encode("utf-8"), expected.encode("utf-8"))
+
+
+def normalized_browser_origin(value: object) -> str:
+    parsed = urlparse(str(value or "").strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        return ""
+    if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+        return ""
+    default_port = 443 if parsed.scheme == "https" else 80
+    try:
+        port = parsed.port or default_port
+    except ValueError:
+        return ""
+    suffix = "" if port == default_port else f":{port}"
+    return f"{parsed.scheme}://{parsed.hostname.casefold().rstrip('.')}{suffix}"
+
+
+def trusted_browser_origins() -> set[str]:
+    configured = {
+        normalized_browser_origin(item)
+        for item in os.environ.get("JUKEBOX_TRUSTED_BROWSER_ORIGINS", "").split(",")
+    }
+    return DEFAULT_TRUSTED_BROWSER_ORIGINS | {item for item in configured if item}
 
 
 def session_token(headers: object) -> str:
@@ -2312,14 +2336,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def browser_mutation_origin_allowed(self) -> bool:
         fetch_site = self.headers.get("Sec-Fetch-Site", "").strip().casefold()
-        if fetch_site == "cross-site":
-            return False
         origin = self.headers.get("Origin", "").strip()
         if origin:
             if origin.casefold() == "null":
                 return False
             parsed = urlparse(origin)
             expected_host = (self.headers.get("X-Forwarded-Host", "") or self.headers.get("Host", "")).split(",", 1)[0].strip().casefold()
+            expected_hostname = (urlparse(f"//{expected_host}").hostname or "").casefold().rstrip(".")
+            if (
+                normalized_browser_origin(origin) in trusted_browser_origins()
+                and (expected_hostname == "sympo.si" or expected_hostname.endswith(".sympo.si"))
+            ):
+                return True
+            if fetch_site == "cross-site":
+                return False
             return parsed.scheme in {"http", "https"} and parsed.netloc.casefold() == expected_host
         return fetch_site in {"same-origin", "same-site"}
 

@@ -251,6 +251,48 @@ class ManagementApiTest(unittest.TestCase):
             )[0],
             200,
         )
+        self.assertEqual(
+            self.request(
+                "POST",
+                "/api/v1/library/rescan",
+                {},
+                {
+                    "Cookie": cookie,
+                    "Origin": "https://sym.cosmise.com",
+                    "X-Forwarded-Host": "jukebox-test.sympo.si",
+                    "Sec-Fetch-Site": "cross-site",
+                },
+            )[0],
+            200,
+        )
+        self.assertEqual(
+            self.request(
+                "POST",
+                "/api/v1/library/rescan",
+                {},
+                {
+                    "Cookie": cookie,
+                    "Origin": "https://sym.cosmise.com",
+                    "X-Forwarded-Host": "attacker.example",
+                    "Sec-Fetch-Site": "cross-site",
+                },
+            )[0],
+            403,
+        )
+        self.assertEqual(
+            self.request(
+                "POST",
+                "/api/v1/library/rescan",
+                {},
+                {
+                    "Cookie": cookie,
+                    "Origin": "https://attacker.example",
+                    "X-Forwarded-Host": "jukebox-test.sympo.si",
+                    "Sec-Fetch-Site": "cross-site",
+                },
+            )[0],
+            403,
+        )
 
         wav_path = self.root / "fake.wav"
         with wave.open(str(wav_path), "wb") as output:

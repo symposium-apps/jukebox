@@ -21,6 +21,8 @@ Use **Import** beside Upload and Folder to paste a public YouTube or YouTube Mus
 
 The managed runtime must provide `ffmpeg`, `ffprobe`, and Node.js. Python dependencies include `yt-dlp`; Jukebox calls its Python API without interpolating links into a shell command. Import currently supports MP3 audio. The approved UI shows MP4 as **Coming next** because Jukebox does not yet expose a video library/player surface.
 
+Symposium's embedded browser is accepted as an exact trusted mutation origin only when the target is an official `sympo.si` app host; arbitrary cross-site origins remain forbidden. Some hosting-provider IP ranges are blocked by YouTube as automated traffic. Jukebox does not read browser cookies automatically. If that happens, explicitly place either a Netscape-format `youtube-cookies.txt` or a single trusted HTTP/SOCKS proxy URL in `youtube-proxy.txt` under `UserData/Jukebox API/`. Jukebox restricts either file to mode `0600`, passes it directly to `yt-dlp`, and never returns or logs its contents.
+
 Browser import routes are:
 
 ```text

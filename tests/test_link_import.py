@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from PIL import Image
 
@@ -70,6 +71,21 @@ class DownloadYDL:
         return {"id": "video000001", "title": "First Track", "artist": "First Artist", "album": "First Album"}
 
 
+class BlockedYDL:
+    def __init__(self, options):
+        self.options = options
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def extract_info(self, url, download=False):
+        self.options["logger"].error("Sign in to confirm you're not a bot")
+        return None
+
+
 class LinkImportTest(unittest.TestCase):
     def setUp(self):
         with link_import.IMPORT_LOCK:
@@ -81,6 +97,10 @@ class LinkImportTest(unittest.TestCase):
             link_import.validate_source_url("https://music.youtube.com/playlist?list=abc"),
             "https://music.youtube.com/playlist?list=abc",
         )
+        self.assertEqual(
+            link_import.validate_source_url("https://www.youtube.com/watch?v=video000001&list=RDvideo000001&start_radio=1"),
+            "https://www.youtube.com/watch?v=video000001",
+        )
         for value in (
             "http://music.youtube.com/watch?v=abc",
             "https://youtube.com.evil.example/watch?v=abc",
@@ -90,6 +110,26 @@ class LinkImportTest(unittest.TestCase):
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 link_import.validate_source_url(value)
+
+    def test_network_block_has_actionable_error_without_automatic_browser_cookies(self):
+        with self.assertRaisesRegex(ValueError, "blocking requests from this server"):
+            link_import.inspect_source("https://www.youtube.com/watch?v=video000001", ydl_class=BlockedYDL)
+
+    def test_explicit_private_cookie_and_proxy_files_are_opt_in(self):
+        with tempfile.TemporaryDirectory(prefix="jukebox-youtube-config-") as temporary:
+            root = Path(temporary)
+            config = root / "Jukebox API"
+            config.mkdir()
+            cookie_file = config / "youtube-cookies.txt"
+            proxy_file = config / "youtube-proxy.txt"
+            cookie_file.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+            proxy_file.write_text("socks5h://proxy.example:1080\n", encoding="utf-8")
+            with mock.patch.dict("os.environ", {"SYM_APP_USER_DATA_DIR": str(root)}):
+                options = link_import._private_ytdlp_options()
+            self.assertEqual(options["cookiefile"], str(cookie_file.resolve()))
+            self.assertEqual(options["proxy"], "socks5h://proxy.example:1080")
+            self.assertEqual(cookie_file.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(proxy_file.stat().st_mode & 0o777, 0o600)
 
     def test_inspection_returns_selection_data_without_download_urls(self):
         result = link_import.inspect_source(
