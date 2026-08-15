@@ -29,7 +29,7 @@ from .audio import MpvJukebox, default_ipc_path
 from .display import create_display
 
 
-AUDIO_EXTENSIONS = {".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac"}
+AUDIO_EXTENSIONS = {".mp3", ".mp4", ".m4a", ".aac", ".ogg", ".wav", ".flac"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 COVER_STEMS = {"cover", "folder", "front", "album", "artwork"}
 DEFAULT_HOME_THEME = {

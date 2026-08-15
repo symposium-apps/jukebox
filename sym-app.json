@@ -3,7 +3,7 @@
   "schema_version": 1,
   "id": "jukebox",
   "name": "Jukebox",
-  "description": "A shared VPS-hosted music library with private playback state in every browser.",
+  "description": "A shared VPS-hosted music and music-video library with private playback state in every browser.",
   "runtime": {
     "type": "python",
     "health_path": "/_sym/health",
@@ -12,7 +12,20 @@
   },
   "configuration": {
     "environment": [],
-    "secrets": []
+    "secrets": [
+      {
+        "name": "JUKEBOX_IMPORT_COMPANION_URL",
+        "label": "Import companion URL",
+        "description": "Private Tailscale URL for the accountless local media downloader.",
+        "required": false
+      },
+      {
+        "name": "JUKEBOX_IMPORT_COMPANION_TOKEN",
+        "label": "Import companion token",
+        "description": "Write-only bearer token shared with the local downloader.",
+        "required": false
+      }
+    ]
   },
   "integrations": [],
   "agent": {
@@ -20,7 +33,12 @@
     "bootstrap_path": "/api/agent/bootstrap",
     "mcp_path": "/mcp"
   },
-  "permissions": [],
+  "permissions": [
+    {
+      "id": "network.external",
+      "reason": "Inspect approved YouTube links and retrieve completed media from the profile-configured private import companion."
+    }
+  ],
   "data": {
     "persistent_paths": [".sym-data"],
     "user_data": {
@@ -28,7 +46,7 @@
       "description": "Music, artwork, and playlists managed by the user or their agent.",
       "label": "Music library",
       "quota_mb": 51200,
-      "content_types": ["audio/*", "image/jpeg", "image/png", "image/webp", "text/plain"],
+      "content_types": ["audio/*", "video/mp4", "image/jpeg", "image/png", "image/webp", "text/plain"],
       "directories": ["Music", "Playlists", "Artwork", "Jukebox API"]
     },
     "private_state": true,

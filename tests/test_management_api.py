@@ -172,8 +172,8 @@ class ManagementApiTest(unittest.TestCase):
         self.assertEqual(wrong[2], missing[2])
         self.assertEqual(self.json_request("GET", "/api/v1/context", password=PASSWORD)[0], 200)
         context = self.json_request("GET", "/api/v1/context", password=PASSWORD)[2]["data"]
-        self.assertEqual(context["link_import"]["formats"], ["mp3"])
-        self.assertEqual(context["link_import"]["mp4_status"], "coming_next")
+        self.assertEqual(context["link_import"]["formats"], ["mp3", "mp4"])
+        self.assertEqual(context["link_import"]["mp4_status"], "ready")
         self.assertEqual(self.json_request("GET", "/api/v1/imports/jobs", password=PASSWORD)[0], 200)
         invalid_v1_import = self.json_request("POST", "/api/v1/imports/inspect", {"url": "https://example.com/watch?v=abc"}, PASSWORD)
         self.assertEqual(invalid_v1_import[0], 400)

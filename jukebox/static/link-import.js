@@ -7,6 +7,7 @@
     error: "",
     inspection: null,
     selected: new Set(),
+    format: "mp3",
     quality: "best",
     artwork: true,
     destinationType: "",
@@ -89,6 +90,7 @@
     model.error = "";
     model.inspection = null;
     model.selected = new Set();
+    model.format = "mp3";
     model.quality = "best";
     model.artwork = true;
     model.query = "";
@@ -138,17 +140,20 @@
 
   function formatControls() {
     return `<div class="jbi-field"><div class="jbi-label">Format</div><div class="jbi-formats">
-      <button class="jbi-format jbi-format--active" type="button" aria-pressed="true"><b>MP3 Audio</b><span>Music only · smaller files</span></button>
-      <button class="jbi-format jbi-format--disabled" type="button" disabled aria-disabled="true"><span class="jbi-flag">COMING NEXT</span><b>MP4 Video</b><span>Video and audio · larger files</span></button>
+      <button class="jbi-format${model.format === "mp3" ? " jbi-format--active" : ""}" type="button" data-format="mp3" aria-pressed="${model.format === "mp3"}"><b>MP3 Audio</b><span>Music only · smaller files</span></button>
+      <button class="jbi-format${model.format === "mp4" ? " jbi-format--active" : ""}" type="button" data-format="mp4" aria-pressed="${model.format === "mp4"}"><b>MP4 Video</b><span>1080p video and audio</span></button>
     </div></div>`;
   }
 
   function settingsControls() {
     const playlists = (state.playlists || []).map(item => `<option value="${esc(item.slug)}" ${model.destinationSlug === item.slug ? "selected" : ""}>${esc(item.name)}</option>`).join("");
     const radio = (type, label, hint = "") => `<button type="button" class="jbi-radio${model.destinationType === type ? " jbi-radio--active" : ""}" data-destination="${type}"><span class="jbi-radio-dot"></span><span><b>${esc(label)}</b>${hint ? `<small>${esc(hint)}</small>` : ""}</span></button>`;
+    const qualityOptions = model.format === "mp4"
+      ? `<option value="best">Best up to 1080p</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option><option value="360">360p</option>`
+      : `<option value="best">Best available</option><option value="320">320 kbps</option><option value="256">256 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps</option>`;
     return `<div class="jbi-grid2">
-      <div class="jbi-field"><div class="jbi-label">Audio quality</div><select class="jbi-select" data-quality><option value="best">Best available</option><option value="320">320 kbps</option><option value="256">256 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps</option></select></div>
-      <div class="jbi-field"><div class="jbi-label">Artwork</div><button class="jbi-check" type="button" data-artwork>${box(model.artwork)}<span><b>Save and embed artwork</b><small>Playlist artwork is not forced onto every track.</small></span></button></div>
+      <div class="jbi-field"><div class="jbi-label">${model.format === "mp4" ? "Video quality" : "Audio quality"}</div><select class="jbi-select" data-quality>${qualityOptions}</select></div>
+      <div class="jbi-field"><div class="jbi-label">Artwork</div><button class="jbi-check" type="button" data-artwork>${box(model.artwork)}<span><b>${model.format === "mp4" ? "Save companion artwork" : "Save and embed artwork"}</b><small>Playlist artwork is not forced onto every track.</small></span></button></div>
     </div>
     <div class="jbi-field"><div class="jbi-label">Destination</div><div class="jbi-radios">
       ${radio("playlist_new", `Create playlist “${model.inspection.title}”`, "Tracks keep their detected artist and album.")}
@@ -185,7 +190,7 @@
       <label class="jbi-search">${icon(icons.search)}<input data-search value="${esc(model.query)}" placeholder="Search within playlist…" aria-label="Search within playlist"></label>
       <div class="jbi-selectbar"><button class="jbi-check" type="button" data-select-all role="checkbox" aria-checked="${all ? "true" : mixed ? "mixed" : "false"}">${box(all || mixed, mixed)}<b>Select all available</b></button><span class="jbi-selectcount">${count} selected</span></div>
       <div class="jbi-list">${filtered.map(trackRow).join("")}</div>${formatControls()}${settingsControls()}`;
-    const size = Math.round(count * 7.2);
+    const size = Math.round(count * (model.format === "mp4" ? 40 : 7.2));
     const foot = `<p class="jbi-note">${count ? `Estimated size: approximately ${size} MB` : "Select at least one track"}</p><span class="jbi-spacer"></span>${button("Back", "ghost", "data-back")}${button(`${icon(icons.download)}${count ? `Download ${count} track${count === 1 ? "" : "s"}` : "Download"}`, "primary", `data-download ${count ? "" : "disabled"}`)}`;
     return shell("Import playlist", body, foot, true);
   }
@@ -233,7 +238,7 @@
         body: JSON.stringify({
           inspection_id: model.inspection.inspection_id,
           item_ids: [...model.selected],
-          format: "mp3",
+          format: model.format,
           quality: model.quality,
           artwork: model.artwork,
           destination: destinationPayload()
@@ -319,6 +324,7 @@
     else if (target.matches("[data-inspect]")) inspectLink();
     else if (target.matches("[data-back]")) { model.screen = "paste"; renderModal(); }
     else if (target.matches("[data-download]")) startDownload();
+    else if (target.matches("[data-format]")) { model.format = target.dataset.format; model.quality = "best"; renderModal(); }
     else if (target.matches("[data-artwork]")) { model.artwork = !model.artwork; renderModal(); }
     else if (target.matches("[data-track-id]")) {
       const id = target.dataset.trackId;

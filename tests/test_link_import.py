@@ -62,11 +62,15 @@ class DownloadYDL:
         for hook in self.options["progress_hooks"]:
             hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 100})
             hook({"status": "finished", "filename": str(work / "source.webm")})
+        is_video = self.options.get("merge_output_format") == "mp4"
         for hook in self.options["postprocessor_hooks"]:
-            hook({"status": "started", "postprocessor": "FFmpegExtractAudio"})
+            hook({"status": "started", "postprocessor": "FFmpegVideoRemuxer" if is_video else "FFmpegExtractAudio"})
             hook({"status": "started", "postprocessor": "FFmpegMetadata"})
             hook({"status": "started", "postprocessor": "EmbedThumbnail"})
-        (work / "source.mp3").write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x00")
+        if is_video:
+            (work / "source.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42fixture")
+        else:
+            (work / "source.mp3").write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x00")
         Image.new("RGB", (20, 20), "#7954d8").save(work / "source.jpg")
         return {"id": "video000001", "title": "First Track", "artist": "First Artist", "album": "First Album"}
 
@@ -112,7 +116,7 @@ class LinkImportTest(unittest.TestCase):
                 link_import.validate_source_url(value)
 
     def test_network_block_has_actionable_error_without_automatic_browser_cookies(self):
-        with self.assertRaisesRegex(ValueError, "blocking requests from this server"):
+        with self.assertRaisesRegex(ValueError, "accountless local downloader"):
             link_import.inspect_source("https://www.youtube.com/watch?v=video000001", ydl_class=BlockedYDL)
 
     def test_explicit_private_cookie_and_proxy_files_are_opt_in(self):
@@ -142,7 +146,10 @@ class LinkImportTest(unittest.TestCase):
         self.assertEqual(result["items"][0]["duration_text"], "3:03")
         self.assertNotIn("url", result["items"][0])
         self.assertTrue(result["items"][1]["unavailable"])
-        self.assertEqual(result["formats"][1]["status"], "coming_next")
+        self.assertEqual(result["formats"], [
+            {"id": "mp3", "label": "MP3 Audio", "enabled": True},
+            {"id": "mp4", "label": "MP4 Video", "enabled": True},
+        ])
 
     def test_job_downloads_mp3_artwork_rescans_and_creates_playlist(self):
         inspected = link_import.inspect_source(
@@ -197,21 +204,47 @@ class LinkImportTest(unittest.TestCase):
             self.assertEqual(playlist_calls[0][1], ["track-1"])
             self.assertFalse((state / "youtube-import-work" / job["id"]).exists())
 
-    def test_job_rejects_mp4_until_video_library_support_exists(self):
+    def test_job_downloads_mp4_and_indexes_it_separately_from_mp3(self):
         inspected = link_import.inspect_source(
             "https://music.youtube.com/playlist?list=fixture",
             ydl_class=InspectYDL,
         )
-        with tempfile.TemporaryDirectory(prefix="jukebox-import-test-") as temporary, self.assertRaisesRegex(ValueError, "coming next"):
-            link_import.create_job(
-                {"inspection_id": inspected["inspection_id"], "item_ids": ["video000001"], "format": "mp4"},
-                library_dir=Path(temporary) / "Music",
-                state_dir=Path(temporary) / "State",
-                quota_bytes=1000,
-                scan_callback=lambda **_: [],
+        with tempfile.TemporaryDirectory(prefix="jukebox-import-test-") as temporary:
+            root = Path(temporary)
+            library = root / "Music"
+            state = root / "State"
+
+            def scan_callback(force=False):
+                return [
+                    {"id": f"track-{index}", "relative_path": path.relative_to(library).as_posix()}
+                    for index, path in enumerate(sorted(library.rglob("*.mp4")), 1)
+                ]
+
+            job = link_import.create_job(
+                {
+                    "inspection_id": inspected["inspection_id"],
+                    "item_ids": ["video000001"],
+                    "format": "mp4",
+                    "quality": "720",
+                },
+                library_dir=library,
+                state_dir=state,
+                quota_bytes=100 * 1024 * 1024,
+                scan_callback=scan_callback,
                 playlist_callback=lambda *_: None,
                 ydl_class=DownloadYDL,
             )
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                job = link_import.get_job(job["id"])
+                if job["status"] in link_import.TERMINAL_JOB_STATES:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(job["status"], "complete", job)
+            videos = list(library.rglob("*.mp4"))
+            self.assertEqual(len(videos), 1)
+            index = link_import._load_index(state / "youtube-import-index.json")
+            self.assertIn("video000001:mp4", index)
 
 
 if __name__ == "__main__":

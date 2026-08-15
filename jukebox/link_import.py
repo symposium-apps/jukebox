@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+from . import import_companion
+
 
 ALLOWED_SOURCE_HOSTS = {
     "youtube.com",
@@ -26,6 +28,7 @@ MAX_RETAINED_JOBS = 40
 INSPECTION_TTL_SECONDS = 30 * 60
 TERMINAL_JOB_STATES = {"complete", "partial", "failed", "cancelled"}
 AUDIO_QUALITIES = {"best": "0", "320": "320", "256": "256", "192": "192", "128": "128"}
+VIDEO_QUALITIES = {"best": 1080, "1080": 1080, "720": 720, "480": 480, "360": 360}
 
 IMPORT_LOCK = threading.RLock()
 INDEX_LOCK = threading.RLock()
@@ -38,8 +41,8 @@ class ImportCancelled(Exception):
 
 
 YOUTUBE_NETWORK_BLOCKED_MESSAGE = (
-    "YouTube is blocking requests from this server. Add an explicitly supplied "
-    "youtube-cookies.txt or youtube-proxy.txt in Jukebox API settings, then try again"
+    "YouTube is blocking this server and the accountless local downloader is unavailable. "
+    "Start the Jukebox Import Companion on the linked AI Computer, then try again"
 )
 
 
@@ -149,8 +152,10 @@ def dependency_status() -> dict[str, object]:
         "ffmpeg": bool(shutil.which("ffmpeg")),
         "ffprobe": bool(shutil.which("ffprobe")),
         "node": bool(shutil.which("node")),
-        "formats": ["mp3"],
-        "mp4_status": "coming_next",
+        "local_companion": import_companion.configured(),
+        "youtube_account_authentication": False,
+        "formats": ["mp3", "mp4"],
+        "mp4_status": "ready",
     }
 
 
@@ -234,25 +239,31 @@ def _prune_locked() -> None:
 
 def inspect_source(url: object, *, ydl_class: type | None = None) -> dict[str, Any]:
     source_url = validate_source_url(url)
-    YoutubeDL = ydl_class or _load_ydl_class()
     logger = QuietLogger()
-    options: dict[str, Any] = {
-        "skip_download": True,
-        "quiet": True,
-        "no_warnings": True,
-        "ignoreerrors": True,
-        "extract_flat": "in_playlist",
-        "playlistend": MAX_INSPECTION_ITEMS,
-        "logger": logger,
-        **_private_ytdlp_options(),
-    }
-    if shutil.which("node"):
-        options["js_runtimes"] = {"node": {}}
-    try:
-        with YoutubeDL(options) as ydl:
-            info = ydl.extract_info(source_url, download=False)
-    except Exception as exc:
-        raise _inspection_failure(logger, exc) from exc
+    if ydl_class is None and import_companion.configured():
+        try:
+            info = import_companion.inspect_source(source_url)
+        except (import_companion.CompanionUnavailable, import_companion.CompanionDownloadFailed) as exc:
+            raise ValueError(YOUTUBE_NETWORK_BLOCKED_MESSAGE) from exc
+    else:
+        YoutubeDL = ydl_class or _load_ydl_class()
+        options: dict[str, Any] = {
+            "skip_download": True,
+            "quiet": True,
+            "no_warnings": True,
+            "ignoreerrors": True,
+            "extract_flat": "in_playlist",
+            "playlistend": MAX_INSPECTION_ITEMS,
+            "logger": logger,
+            **_private_ytdlp_options(),
+        }
+        if shutil.which("node"):
+            options["js_runtimes"] = {"node": {}}
+        try:
+            with YoutubeDL(options) as ydl:
+                info = ydl.extract_info(source_url, download=False)
+        except Exception as exc:
+            raise _inspection_failure(logger, exc) from exc
     if not isinstance(info, dict):
         raise _inspection_failure(logger)
     raw_entries = info.get("entries")
@@ -299,7 +310,7 @@ def inspect_source(url: object, *, ydl_class: type | None = None) -> dict[str, A
         "count": len(items),
         "available_count": available,
         "items": [_public_item(item) for item in items],
-        "formats": [{"id": "mp3", "label": "MP3 Audio", "enabled": True}, {"id": "mp4", "label": "MP4 Video", "enabled": False, "status": "coming_next"}],
+        "formats": [{"id": "mp3", "label": "MP3 Audio", "enabled": True}, {"id": "mp4", "label": "MP4 Video", "enabled": True}],
     }
 
 
@@ -375,11 +386,12 @@ def create_job(
         if active_source_ids.intersection(selected_ids):
             raise ValueError("One or more selected tracks are already queued")
         output_format = str(payload.get("format") or "mp3").casefold()
-        if output_format != "mp3":
-            raise ValueError("MP4 video import is coming next; choose MP3 Audio")
+        if output_format not in {"mp3", "mp4"}:
+            raise ValueError("Choose MP3 Audio or MP4 Video")
         quality = str(payload.get("quality") or "best")
-        if quality not in AUDIO_QUALITIES:
-            raise ValueError("Unsupported MP3 quality")
+        allowed_qualities = AUDIO_QUALITIES if output_format == "mp3" else VIDEO_QUALITIES
+        if quality not in allowed_qualities:
+            raise ValueError(f"Unsupported {output_format.upper()} quality")
         job_id = uuid.uuid4().hex
         now = time.time()
         job = {
@@ -561,10 +573,10 @@ def _cover_from_audio(audio_path: Path, destination_dir: Path) -> None:
 
 
 def _download_one(job_id: str, item_index: int, *, library_dir: Path, work_root: Path, quota_bytes: int, index_path: Path, ydl_class: type | None) -> str:
-    YoutubeDL = ydl_class or _load_ydl_class()
     with IMPORT_LOCK:
         job = JOBS[job_id]
         item = copy.deepcopy(job["items"][item_index])
+        output_format = str(job["format"])
         quality = str(job["quality"])
         include_artwork = bool(job["artwork"])
         destination = copy.deepcopy(job["destination"])
@@ -572,7 +584,8 @@ def _download_one(job_id: str, item_index: int, *, library_dir: Path, work_root:
         raise ImportCancelled
     with INDEX_LOCK:
         source_index = _load_index(index_path)
-    existing_relative = source_index.get(str(item["id"]))
+    index_key = f"{item['id']}:{output_format}"
+    existing_relative = source_index.get(index_key) or (source_index.get(str(item["id"])) if output_format == "mp3" else None)
     if existing_relative:
         existing_path = (library_dir / existing_relative).resolve()
         if existing_path.is_file() and existing_path.is_relative_to(library_dir):
@@ -594,7 +607,8 @@ def _download_one(job_id: str, item_index: int, *, library_dir: Path, work_root:
             progress = round(downloaded * 100 / total) if total else None
             _update_item(job_id, item_index, status="downloading", stage="Downloading", progress=progress, downloaded_bytes=downloaded, total_bytes=total)
         elif status == "finished":
-            _update_item(job_id, item_index, status="processing", stage="Converting to MP3", progress=None)
+            stage = "Converting to MP3" if output_format == "mp3" else "Merging MP4 video"
+            _update_item(job_id, item_index, status="processing", stage=stage, progress=None)
 
     def postprocessor_hook(data: dict[str, Any]) -> None:
         if _job_cancelled(job_id):
@@ -605,51 +619,83 @@ def _download_one(job_id: str, item_index: int, *, library_dir: Path, work_root:
         stage = "Adding to Jukebox"
         if "ExtractAudio" in name:
             stage = "Converting to MP3"
+        elif "Merger" in name:
+            stage = "Merging MP4 video"
         elif "Metadata" in name:
             stage = "Embedding metadata"
         elif "Thumbnail" in name:
             stage = "Downloading artwork"
         _update_item(job_id, item_index, status="processing", stage=stage, progress=None)
 
-    logger = QuietLogger()
-    options: dict[str, Any] = {
-        "format": "bestaudio/best",
-        "noplaylist": True,
-        "quiet": True,
-        "no_warnings": True,
-        "logger": logger,
-        "paths": {"home": str(work), "temp": str(work)},
-        "outtmpl": {"default": "source.%(ext)s", "thumbnail": "source.%(ext)s"},
-        "retries": 3,
-        "fragment_retries": 3,
-        "continuedl": True,
-        "writethumbnail": include_artwork,
-        "progress_hooks": [progress_hook],
-        "postprocessor_hooks": [postprocessor_hook],
-        "postprocessors": [
-            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": AUDIO_QUALITIES[quality]},
-            {"key": "FFmpegMetadata", "add_metadata": True},
-            *([{"key": "EmbedThumbnail"}] if include_artwork else []),
-        ],
-        **_private_ytdlp_options(),
-    }
-    if shutil.which("node"):
-        options["js_runtimes"] = {"node": {}}
-    try:
-        with YoutubeDL(options) as ydl:
-            downloaded_info = ydl.extract_info(str(item["url"]), download=True)
-    except ImportCancelled:
-        raise
-    except Exception as exc:
-        logger._classify(str(exc))
-        if logger.youtube_network_blocked:
-            raise RuntimeError(YOUTUBE_NETWORK_BLOCKED_MESSAGE) from exc
-        raise RuntimeError("Download interrupted or unavailable") from exc
+    if ydl_class is None and import_companion.configured():
+        try:
+            media_path, downloaded_info = import_companion.download_source(
+                str(item["url"]),
+                output_format=output_format,
+                quality=quality,
+                artwork=include_artwork,
+                destination=work,
+                progress=lambda value, downloaded, total, stage: _update_item(
+                    job_id,
+                    item_index,
+                    status="processing" if stage in {"Processing", "Transferring to Jukebox"} else "downloading",
+                    stage=stage,
+                    progress=value,
+                    downloaded_bytes=downloaded,
+                    total_bytes=total,
+                ),
+                cancelled=lambda: _job_cancelled(job_id),
+            )
+        except import_companion.CompanionCancelled as exc:
+            raise ImportCancelled from exc
+        except (import_companion.CompanionUnavailable, import_companion.CompanionDownloadFailed) as exc:
+            raise RuntimeError("Download interrupted or unavailable") from exc
+    else:
+        YoutubeDL = ydl_class or _load_ydl_class()
+        logger = QuietLogger()
+        postprocessors: list[dict[str, Any]] = [{"key": "FFmpegMetadata", "add_metadata": True}]
+        if output_format == "mp3":
+            postprocessors.insert(0, {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": AUDIO_QUALITIES[quality]})
+            if include_artwork:
+                postprocessors.append({"key": "EmbedThumbnail"})
+        height = VIDEO_QUALITIES.get(quality, 1080)
+        options: dict[str, Any] = {
+            "format": "bestaudio/best" if output_format == "mp3" else f"bv*[height<={height}][ext=mp4]+ba[ext=m4a]/b[height<={height}][ext=mp4]",
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "logger": logger,
+            "paths": {"home": str(work), "temp": str(work)},
+            "outtmpl": {"default": "source.%(ext)s", "thumbnail": "source.%(ext)s"},
+            "retries": 3,
+            "fragment_retries": 3,
+            "continuedl": True,
+            "writethumbnail": include_artwork,
+            "progress_hooks": [progress_hook],
+            "postprocessor_hooks": [postprocessor_hook],
+            "postprocessors": postprocessors,
+            **({"merge_output_format": "mp4"} if output_format == "mp4" else {}),
+            **_private_ytdlp_options(),
+        }
+        if shutil.which("node"):
+            options["js_runtimes"] = {"node": {}}
+        try:
+            with YoutubeDL(options) as ydl:
+                downloaded_info = ydl.extract_info(str(item["url"]), download=True)
+        except ImportCancelled:
+            raise
+        except Exception as exc:
+            logger._classify(str(exc))
+            if logger.youtube_network_blocked:
+                raise RuntimeError(YOUTUBE_NETWORK_BLOCKED_MESSAGE) from exc
+            raise RuntimeError("Download interrupted or unavailable") from exc
+        media_files = sorted(path for path in work.rglob(f"*.{output_format}") if path.is_file())
+        if not media_files:
+            raise RuntimeError(f"The download did not produce an {output_format.upper()} file")
+        media_path = media_files[0]
     if _job_cancelled(job_id):
         raise ImportCancelled
-    mp3_files = sorted(path for path in work.rglob("*.mp3") if path.is_file())
-    if not mp3_files:
-        raise RuntimeError("The download did not produce an MP3 file")
+
     if isinstance(downloaded_info, dict):
         artist = str(downloaded_info.get("artist") or downloaded_info.get("creator") or downloaded_info.get("uploader") or item["artist"])
         album = str(downloaded_info.get("album") or item["album"])
@@ -667,15 +713,16 @@ def _download_one(job_id: str, item_index: int, *, library_dir: Path, work_root:
         raise RuntimeError("Import destination escaped the music library")
     destination_dir.mkdir(parents=True, exist_ok=True)
     prefix = f"{int(item['index']):02d} " if int(item.get("index") or 0) else ""
-    final_path = _unique_destination(destination_dir / f"{prefix}{_safe_component(title, 'Track', 140)}.mp3")
-    os.replace(mp3_files[0], final_path)
+    final_path = _unique_destination(destination_dir / f"{prefix}{_safe_component(title, 'Track', 140)}.{output_format}")
+    os.replace(media_path, final_path)
     if include_artwork:
         _cover_from_work(work, destination_dir)
-        _cover_from_audio(final_path, destination_dir)
+        if output_format == "mp3":
+            _cover_from_audio(final_path, destination_dir)
     relative = final_path.relative_to(library_dir).as_posix()
     with INDEX_LOCK:
         source_index = _load_index(index_path)
-        source_index[str(item["id"])] = relative
+        source_index[index_key] = relative
         _persist_index(index_path, source_index)
     return relative
 
@@ -735,7 +782,14 @@ def _run_job(
                     job["cancelled"] += 1
                 continue
             except Exception as exc:
-                message = str(exc) if str(exc) in {"Jukebox does not have enough storage for this import", "The download did not produce an MP3 file", "Download interrupted or unavailable"} else "Could not download this track"
+                allowed_messages = {
+                    "Jukebox does not have enough storage for this import",
+                    "The download did not produce an MP3 file",
+                    "The download did not produce an MP4 file",
+                    "Download interrupted or unavailable",
+                    YOUTUBE_NETWORK_BLOCKED_MESSAGE,
+                }
+                message = str(exc) if str(exc) in allowed_messages else "Could not download this track"
                 with IMPORT_LOCK:
                     job = JOBS[job_id]
                     item = job["items"][item_index]

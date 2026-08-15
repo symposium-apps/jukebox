@@ -13,15 +13,17 @@ After installation:
 3. Use **Upload**, **Folder**, or drag and drop to add music.
 4. Use `/mini-sym` for the compact device-style player controls.
 
-Jukebox accepts MP3, M4A, AAC, OGG, WAV, and FLAC audio. Album artwork can be uploaded as JPG, PNG, or WebP.
+Jukebox accepts MP3, MP4, M4A, AAC, OGG, WAV, and FLAC media. Album artwork can be uploaded as JPG, PNG, or WebP.
 
 ## Import from YouTube and YouTube Music
 
-Use **Import** beside Upload and Folder to paste a public YouTube or YouTube Music track, album, or playlist link. Jukebox inspects the source before downloading, lets you choose individual available tracks, MP3 quality, artwork, and the destination album or playlist, then keeps progress visible in a persistent Downloads drawer. Completed files are tagged MP3s with embedded artwork and a companion album cover when available; playlist imports retain per-track metadata and can create or update a Jukebox playlist.
+Use **Import** beside Upload and Folder to paste a public YouTube or YouTube Music track, album, or playlist link. Jukebox inspects the source before downloading, lets you choose individual available tracks, MP3 or MP4 output, quality, artwork, and the destination album or playlist, then keeps progress visible in a persistent Downloads drawer. MP3 files are tagged with embedded artwork; MP4 files retain playable video and audio streams; both receive a companion album cover when available. Playlist imports retain per-track metadata and can create or update a Jukebox playlist.
 
-The managed runtime must provide `ffmpeg`, `ffprobe`, and Node.js. Python dependencies include `yt-dlp`; Jukebox calls its Python API without interpolating links into a shell command. Import currently supports MP3 audio. The approved UI shows MP4 as **Coming next** because Jukebox does not yet expose a video library/player surface.
+YouTube currently rejects anonymous media delivery from many datacenter IP ranges. The normal accountless path therefore runs the open-source downloader on the user's linked AI Computer and returns the completed media to the profile-scoped Jukebox installation over the private tailnet. It uses `yt-dlp`, `yt-dlp-ejs`, and `yt-dlp-getpot-wpc` as libraries/components, plus FFmpeg, Node.js 20+, and a local Chrome/Chromium engine for anonymous proof-of-origin challenges. It does **not** use a Windows downloader GUI, a YouTube account, cookies, OAuth, or an exported browser session.
 
-Symposium's embedded browser is accepted as an exact trusted mutation origin only when the target is an official `sympo.si` app host; arbitrary cross-site origins remain forbidden. Some hosting-provider IP ranges are blocked by YouTube as automated traffic. Jukebox does not read browser cookies automatically. If that happens, explicitly place either a Netscape-format `youtube-cookies.txt` or a single trusted HTTP/SOCKS proxy URL in `youtube-proxy.txt` under `UserData/Jukebox API/`. Jukebox restricts either file to mode `0600`, passes it directly to `yt-dlp`, and never returns or logs its contents.
+On macOS, install or update the companion from this repository with `python3 companion/install_macos.py`. The installer creates a private virtual environment and token under `~/Library/Application Support/Samos Labs/Jukebox Import Companion/`, installs a background login item, and publishes only the narrow authenticated companion port through Tailscale Serve. Configure each Jukebox installation's write-only `JUKEBOX_IMPORT_COMPANION_URL` and `JUKEBOX_IMPORT_COMPANION_TOKEN` app secrets through SYM-Node. The token is never returned by the worker API, and source links, proof tokens, and browser state are not logged.
+
+Symposium's embedded browser is accepted as an exact trusted mutation origin only when the target is an official `sympo.si` app host; arbitrary cross-site origins remain forbidden. Jukebox calls `yt-dlp` through its Python API without interpolating links into shell commands. Direct worker-side extraction remains available when no companion is configured, and optional legacy `youtube-cookies.txt` / `youtube-proxy.txt` files are still honored only when an administrator explicitly creates them under `UserData/Jukebox API/`; Jukebox never reads browser cookies automatically.
 
 Browser import routes are:
 
@@ -95,7 +97,7 @@ The canonical management API is rooted at `/api/v1`. Its OpenAPI description is 
 
 ### Stream audio and artwork
 
-`PUT /api/v1/files/{relative-library-path}` streams the request body to a temporary file and atomically places it in the library. It supports MP3, M4A, AAC, OGG, WAV, FLAC, JPG, PNG, and WebP without buffering the complete file in memory.
+`PUT /api/v1/files/{relative-library-path}` streams the request body to a temporary file and atomically places it in the library. It supports MP3, MP4, M4A, AAC, OGG, WAV, FLAC, JPG, PNG, and WebP without buffering the complete file in memory.
 
 ```bash
 BASE='https://your-jukebox.example'

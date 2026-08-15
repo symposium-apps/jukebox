@@ -2895,8 +2895,8 @@
     <div class="now-line" id="nowLine">Nothing loaded</div>
   </header>
 
-  <input id="fileInput" type="file" accept="audio/*,image/*,.mp3,.m4a,.aac,.ogg,.wav,.flac,.jpg,.jpeg,.png,.webp" multiple>
-  <input id="folderInput" type="file" accept="audio/*,image/*,.mp3,.m4a,.aac,.ogg,.wav,.flac,.jpg,.jpeg,.png,.webp" webkitdirectory directory multiple hidden>
+  <input id="fileInput" type="file" accept="audio/*,video/mp4,image/*,.mp3,.mp4,.m4a,.aac,.ogg,.wav,.flac,.jpg,.jpeg,.png,.webp" multiple>
+  <input id="folderInput" type="file" accept="audio/*,video/mp4,image/*,.mp3,.mp4,.m4a,.aac,.ogg,.wav,.flac,.jpg,.jpeg,.png,.webp" webkitdirectory directory multiple hidden>
   <audio id="webAudio" preload="metadata"></audio>
 
   <section class="layout drop-target" id="dropZone">
@@ -4046,7 +4046,7 @@ function uploadPath(item) {
 }
 
 function uploadableFiles(files) {
-  const allowed = new Set(["mp3", "m4a", "aac", "ogg", "wav", "flac", "jpg", "jpeg", "png", "webp"]);
+  const allowed = new Set(["mp3", "mp4", "m4a", "aac", "ogg", "wav", "flac", "jpg", "jpeg", "png", "webp"]);
   return files.filter(item => {
     const file = uploadBlob(item);
     const name = uploadPath(item).toLowerCase();
