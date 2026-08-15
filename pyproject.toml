@@ -1,11 +1,12 @@
 [project]
 name = "jukebox"
-version = "1.1.30"
+version = "1.2.0"
 description = "Shared VPS music library with independent browser playback."
 requires-python = ">=3.11"
 dependencies = [
   "mutagen>=1.46,<2",
   "Pillow>=10,<12",
+  "yt-dlp>=2026.7.4,<2027",
 ]
 
 [tool.setuptools]

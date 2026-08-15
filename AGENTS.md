@@ -17,6 +17,14 @@ Jukebox exposes a profile-scoped music library through authenticated REST and MC
 - For a batch, upload files without rescanning each one, then call `POST /api/v1/library/rescan` once.
 - Do not base64-encode large audio into MCP JSON. Use MCP for discovery/management and REST for bytes.
 
+## Link import contract
+
+- Inspect public YouTube or YouTube Music links with `POST /api/v1/imports/inspect`, then start selected MP3 items with `POST /api/v1/imports/jobs`.
+- Treat the returned `inspection_id` and item IDs as the server-owned selection boundary; never invent extractor URLs or write directly into an installed release.
+- MP4 is intentionally `coming_next` until Jukebox has a first-class video library and player. Do not bypass that gate by placing unindexed MP4 files in UserData.
+- Imports run asynchronously in private app state and atomically place completed tagged MP3/artwork into UserData. Poll the job API instead of starting a second downloader process.
+- Never provide browser cookies or account credentials unless a future explicit credential design is approved. Private, age-gated, region-restricted, or account-only items may remain unavailable.
+
 ## Managed app boundary
 
 The App Store release is immutable. Write music, artwork, playlists, and the optional password only inside declared `UserData`. Never edit an installed managed release in place. Use the app-local API/MCP so the UI and generated artwork stay synchronized.

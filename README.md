@@ -15,6 +15,25 @@ After installation:
 
 Jukebox accepts MP3, M4A, AAC, OGG, WAV, and FLAC audio. Album artwork can be uploaded as JPG, PNG, or WebP.
 
+## Import from YouTube and YouTube Music
+
+Use **Import** beside Upload and Folder to paste a public YouTube or YouTube Music track, album, or playlist link. Jukebox inspects the source before downloading, lets you choose individual available tracks, MP3 quality, artwork, and the destination album or playlist, then keeps progress visible in a persistent Downloads drawer. Completed files are tagged MP3s with embedded artwork and a companion album cover when available; playlist imports retain per-track metadata and can create or update a Jukebox playlist.
+
+The managed runtime must provide `ffmpeg`, `ffprobe`, and Node.js. Python dependencies include `yt-dlp`; Jukebox calls its Python API without interpolating links into a shell command. Import currently supports MP3 audio. The approved UI shows MP4 as **Coming next** because Jukebox does not yet expose a video library/player surface.
+
+Browser import routes are:
+
+```text
+POST /api/import/inspect
+GET  /api/import/jobs
+POST /api/import/jobs
+GET  /api/import/jobs/{id}
+POST /api/import/jobs/{id}/cancel
+POST /api/import/jobs/clear
+```
+
+Authenticated automation can use the equivalent versioned routes under `/api/v1/imports`. Inspections expire after 30 minutes, source hosts are restricted to exact YouTube domains, downloads use private temporary state before atomic placement in UserData, and completed source IDs are indexed privately to avoid duplicate imports.
+
 ## App-owned storage
 
 SYM-Node provides a profile/app-scoped `UserData` directory. Jukebox consumes the platform paths supplied through `SYM_APP_USER_DATA_DIR` and `SYM_APP_STATE_DIR`; it does not require the immutable App Store release to be writable.

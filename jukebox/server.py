@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import __version__
+from . import link_import
 from .audio import MpvJukebox, default_ipc_path
 from .display import create_display
 
@@ -2060,6 +2061,12 @@ def agent_bootstrap() -> dict[str, object]:
             "max_bytes": API_MAX_UPLOAD_BYTES,
             "notes": "Stream raw file bytes with curl --upload-file. Upload artwork into the album folder, then rescan once after a batch.",
         },
+        "link_import": {
+            "inspect_path": "/api/v1/imports/inspect",
+            "jobs_path": "/api/v1/imports/jobs",
+            "supported_hosts": sorted(link_import.ALLOWED_SOURCE_HOSTS),
+            **link_import.dependency_status(),
+        },
     }
 
 
@@ -2084,6 +2091,10 @@ def openapi_document() -> dict[str, object]:
             "/api/v1/playlists/{slug}/tracks": {"post": {"summary": "Add tracks"}, "delete": {"summary": "Remove tracks"}},
             "/api/v1/files/{relative-path}": {"put": {"summary": "Stream an audio or artwork file into the library"}},
             "/api/v1/library/rescan": {"post": {"summary": "Rescan metadata and artwork after a batch upload"}},
+            "/api/v1/imports/inspect": {"post": {"summary": "Inspect a YouTube or YouTube Music link without downloading"}},
+            "/api/v1/imports/jobs": {"get": {"summary": "List link-import jobs"}, "post": {"summary": "Start an inspected MP3 import"}},
+            "/api/v1/imports/jobs/{id}": {"get": {"summary": "Get one link-import job"}},
+            "/api/v1/imports/jobs/{id}/cancel": {"post": {"summary": "Cancel an active link-import job"}},
             "/mcp": {"post": {"summary": "MCP Streamable HTTP JSON-RPC endpoint"}},
         },
     }
@@ -2122,6 +2133,26 @@ def remove_playlist_tracks(slug: str, track_ids: list[str]) -> dict[str, object]
     removed = {str(item) for item in track_ids}
     current = [str(item) for item in playlist.get("track_ids", []) if str(item) not in removed]
     return replace_playlist(str(playlist["slug"]), str(playlist["name"]), current)
+
+
+def save_import_playlist(destination: dict[str, str], track_ids: list[str]) -> object:
+    if destination.get("type") == "playlist_existing":
+        slug = str(destination.get("slug") or "")
+        if not slug:
+            raise ValueError("Choose an existing playlist")
+        return add_playlist_tracks(slug, track_ids)
+    return save_playlist(str(destination.get("name") or "Imported music"), track_ids)
+
+
+def create_import_job(payload: dict[str, object]) -> dict[str, object]:
+    return link_import.create_job(
+        payload,
+        library_dir=LIBRARY_DIR,
+        state_dir=HOME,
+        quota_bytes=USER_DATA_QUOTA_BYTES,
+        scan_callback=scan_library,
+        playlist_callback=save_import_playlist,
+    )
 
 
 def safe_upload_destination(relative_path: str) -> Path:
@@ -2448,6 +2479,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(api_receipt("list_playlists", list_playlists()))
             elif path.startswith("/api/v1/playlists/"):
                 self.send_json(api_receipt("get_playlist", playlist_or_error(unquote(path.removeprefix("/api/v1/playlists/")))))
+            elif path in {"/api/import/jobs", "/api/v1/imports/jobs"}:
+                self.send_json(api_receipt("list_import_jobs", link_import.list_jobs()))
+            elif path.startswith("/api/import/jobs/"):
+                self.send_json(api_receipt("get_import_job", link_import.get_job(unquote(path.removeprefix("/api/import/jobs/")))))
+            elif path.startswith("/api/v1/imports/jobs/"):
+                self.send_json(api_receipt("get_import_job", link_import.get_job(unquote(path.removeprefix("/api/v1/imports/jobs/")))))
+            elif path.startswith("/static/"):
+                self.serve_static(unquote(path.removeprefix("/static/")))
             elif path == "/api/screen":
                 self.send_json(screen_payload())
             elif path == "/api/status":
@@ -2497,6 +2536,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/mcp":
                 self.handle_mcp()
+            elif path in {"/api/import/inspect", "/api/v1/imports/inspect"}:
+                body = self.read_json()
+                self.send_json(api_receipt("inspect_import", link_import.inspect_source(body.get("url"))))
+            elif path in {"/api/import/jobs", "/api/v1/imports/jobs"}:
+                body = self.read_json()
+                self.send_json(api_receipt("create_import_job", create_import_job(body), True), HTTPStatus.ACCEPTED)
+            elif (path.startswith("/api/import/jobs/") or path.startswith("/api/v1/imports/jobs/")) and path.endswith("/cancel"):
+                prefix = "/api/v1/imports/jobs/" if path.startswith("/api/v1/") else "/api/import/jobs/"
+                job_id = unquote(path.removeprefix(prefix).removesuffix("/cancel").rstrip("/"))
+                self.send_json(api_receipt("cancel_import_job", link_import.cancel_job(job_id), True))
+            elif path in {"/api/import/jobs/clear", "/api/v1/imports/jobs/clear"}:
+                self.send_json(api_receipt("clear_import_jobs", {"cleared": link_import.clear_finished_jobs()}, True))
             elif path == "/api/v1/library/rescan":
                 invalidate_library_cache()
                 invalidate_storage_cache()
@@ -2902,6 +2953,21 @@ class Handler(BaseHTTPRequestHandler):
         with path.open("rb") as file:
             while chunk := file.read(1024 * 1024):
                 self.wfile.write(chunk)
+
+    def serve_static(self, relative_path: str) -> None:
+        path = (APP_ASSETS_DIR / relative_path).resolve()
+        if not path.is_file() or not path.is_relative_to(APP_ASSETS_DIR) or path.suffix.lower() not in {".css", ".js"}:
+            self.send_json({"ok": False, "error": "Static asset not found"}, HTTPStatus.NOT_FOUND)
+            return
+        content_type = "text/css; charset=utf-8" if path.suffix.lower() == ".css" else "text/javascript; charset=utf-8"
+        data = path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def serve_asset(self, relative_path: str) -> None:
         path = (ASSETS_DIR / relative_path).resolve()
