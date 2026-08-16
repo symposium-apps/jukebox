@@ -33,11 +33,12 @@
   extra.insertAdjacentElement("afterbegin", streamState);
   const showVideo = document.createElement("button");
   showVideo.id = "showVideoBtn";
-  showVideo.className = "cache-button";
+  showVideo.className = "control-button video-return-control";
   showVideo.type = "button";
-  showVideo.textContent = "Show video";
+  showVideo.title = "Show video";
+  showVideo.innerHTML = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="12" rx="2"/><path d="M9 21h6"/><path d="M12 17v4"/></svg><span>Show video</span>';
   showVideo.hidden = true;
-  streamState.insertAdjacentElement("afterend", showVideo);
+  qs("nextBtn").insertAdjacentElement("afterend", showVideo);
 
   let stageTrackId = "";
   let stageCollapsed = false;
