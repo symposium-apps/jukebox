@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlparse
 
 from youtube_urls import YOUTUBE_HOSTS, canonicalize_source_url
 
-VERSION = "1.4.3"
+VERSION = "1.4.4"
 MAX_BODY_BYTES = 32 * 1024
 MAX_JOBS = 2
 MAX_JOB_AGE_SECONDS = 60 * 60

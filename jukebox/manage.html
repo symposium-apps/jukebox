@@ -2587,7 +2587,7 @@
       min-width: 0;
       min-height: 56px;
       display: grid;
-      grid-template-columns: 28px 42px minmax(0,1fr) 76px 86px;
+      grid-template-columns: 28px 42px minmax(0,1fr) minmax(112px,auto) 86px;
       align-items: center;
       gap: 12px;
       padding: 7px 12px 7px 8px;
@@ -2606,6 +2606,24 @@
     .track-row.playing .track-title { color: var(--accent-2); }
     .track-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; text-transform: none; }
     .track-kind, .track-size { color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+    .track-formats { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+    .format-choice {
+      min-width: 44px;
+      height: 44px;
+      padding: 0 9px;
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .04em;
+    }
+    .format-choice:hover:not(:disabled), .format-choice.active {
+      border-color: rgba(167,139,250,.52);
+      background: var(--accent-tint);
+      color: #fff;
+    }
     .empty, .empty-inline { display: grid; place-items: center; min-height: 120px; padding: 20px; border: 1px dashed var(--line); border-radius: 12px; background: rgba(255,255,255,.015); color: var(--muted); text-align: center; }
     .empty { position: absolute; inset: 28px 48px 56px; }
     .empty[hidden] { display: none; }
@@ -2930,6 +2948,9 @@
       .player-progress { display: none; }
       .player-cover,
       .player-fallback { width: 48px; height: 48px; }
+      .track-row { grid-template-columns: 28px 40px minmax(0,1fr) auto; }
+      .track-formats { display: flex; }
+      .track-size { display: none; }
     }
 
     @media (max-width: 560px) {
@@ -2947,6 +2968,8 @@
       }
       .toolbar button:disabled,
       .toolbar .volume:has(input:disabled) { display: inline-flex; opacity: .38; }
+      .track-row { grid-template-columns: 24px minmax(0,1fr) auto; }
+      .track-cover { display: none; }
     }
 
     @media (max-width: 360px) {
@@ -3118,6 +3141,7 @@
   </div>
 </main>
 
+<script src="/static/logical-media.js?v=__JUKEBOX_VERSION__"></script>
 <script>
 const BROWSER_SESSION_STORAGE_KEY = "jukebox.browser-session.v1";
 const browserSession = (() => {
@@ -4098,6 +4122,22 @@ function artistName(track) {
   return album.includes(" - ") ? album.split(" - ")[0].trim() : "";
 }
 
+function normalizedMediaIdentity(value) {
+  return String(value || "").normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function logicalMediaKey(track) {
+  const title = String(track.name || track.title || track.filename || "");
+  const artist = artistName(track) || (title.includes(" - ") ? title.split(" - ")[0].trim() : "");
+  return [artist, albumName(track), title]
+    .map(normalizedMediaIdentity)
+    .join("\u001f");
+}
+
+function logicalTracks(tracks) {
+  return JukeboxLogicalMedia.groupTracks(state.tracks, tracks, logicalMediaKey);
+}
+
 function playlistCoverForAlbum(name, artist = "") {
   const keys = new Set([String(name).toLowerCase()]);
   if (artist) keys.add(`${artist} - ${name}`.toLowerCase());
@@ -4111,7 +4151,7 @@ function albumCoverForTrack(track) {
 
 function albums() {
   const map = new Map();
-  for (const track of state.tracks) {
+  for (const track of logicalTracks(state.tracks)) {
     const name = albumName(track);
     if (!map.has(name)) map.set(name, []);
     map.get(name).push(track);
@@ -4138,7 +4178,7 @@ function tracksForPlaylist(slug) {
   const playlist = playlistBySlug(slug);
   if (!playlist) return [];
   const byId = trackMap();
-  return playlist.track_ids.map(id => byId.get(String(id))).filter(Boolean);
+  return logicalTracks(playlist.track_ids.map(id => byId.get(String(id))).filter(Boolean));
 }
 
 function setView(view) {
@@ -4149,6 +4189,11 @@ function setView(view) {
 
 function selectedTrackIds() {
   return [...document.querySelectorAll("[data-track-check]:checked")].map(el => el.value);
+}
+
+function selectedVariantIds() {
+  return [...new Set([...document.querySelectorAll("[data-track-check]:checked")]
+    .flatMap(element => String(element.dataset.variantIds || element.value).split(",").filter(Boolean)))];
 }
 
 function selectedPlaylistSlugs() {
@@ -4163,7 +4208,7 @@ function selectedAlbumTrackIds() {
   const names = new Set(selectedAlbumNames());
   return albums()
     .filter(album => names.has(album.name))
-    .flatMap(album => album.tracks.map(track => String(track.id)));
+    .flatMap(album => album.tracks.flatMap(track => (track.variant_ids || [track.id]).map(String)));
 }
 
 function uploadBlob(item) {
@@ -4628,25 +4673,36 @@ function mediaCard({ name, sub, open, count, cover, checkKind, checkValue, fallb
 }
 
 function trackRow(track) {
-  const playing = state.status?.current_track && String(state.status.current_track.id) === String(track.id);
+  const currentId = String(state.status?.current_track?.id || "");
+  const variantIds = Array.isArray(track.variant_ids) ? track.variant_ids.map(String) : [String(track.id)];
+  const playing = variantIds.includes(currentId);
   const detail = [
     track.artist ? String(track.artist) : "",
-    track.album ? String(track.album) : "",
-    track.relative_path || track.filename || ""
+    track.album ? String(track.album) : ""
   ].filter(Boolean).join(" / ");
   const cover = albumCoverForTrack(track);
   const icon = cover
     ? `<img class="track-cover" src="${escapeHtml(artworkUrl(cover))}" data-artwork-path="${escapeHtml(normalizedArtworkPath(cover))}" alt="">`
     : `<span class="track-cover"></span>`;
+  const formats = (track.format_variants || [{
+    format: String(track.extension || "audio").replace(/^\./, ""),
+    track_id: String(track.id),
+    size: Number(track.size || 0)
+  }]).map(variant => `
+    <button class="format-choice ${currentId === String(variant.track_id) ? "active" : ""}"
+      data-format-track="${escapeHtml(variant.track_id)}" type="button"
+      title="Play ${escapeHtml(track.name)} as ${escapeHtml(String(variant.format).toUpperCase())} · ${escapeHtml(fmtSize(variant.size))}"
+      aria-label="Play ${escapeHtml(track.name)} as ${escapeHtml(String(variant.format).toUpperCase())}">${escapeHtml(String(variant.format).toUpperCase())}</button>
+  `).join("");
   return `
     <article class="track-row ${playing ? "playing" : ""}" data-track-row="${escapeHtml(track.id)}" data-selectable>
-      <input data-track-check type="checkbox" value="${escapeHtml(track.id)}" aria-label="Select ${escapeHtml(track.name)}">
+      <input data-track-check data-variant-ids="${escapeHtml(variantIds.join(","))}" type="checkbox" value="${escapeHtml(track.id)}" aria-label="Select ${escapeHtml(track.name)}">
       ${icon}
       <div>
         <div class="track-title">${escapeHtml(track.name)}</div>
         <div class="track-meta">${escapeHtml(detail)}</div>
       </div>
-      <div class="track-kind">${escapeHtml(String(track.extension || "").replace(".", "") || "audio")}</div>
+      <div class="track-formats" role="group" aria-label="Available formats">${formats}</div>
       <div class="track-size">${fmtSize(track.size)}</div>
     </article>
   `;
@@ -4656,7 +4712,7 @@ function renderRows() {
   const rows = qs("rows");
   const empty = qs("emptyState");
   const title = viewTitle();
-  let hint = `${albums().length} albums / ${state.tracks.length} tracks`;
+  let hint = `${albums().length} albums / ${logicalTracks(state.tracks).length} tracks`;
   let html = "";
 
   if (state.view.type === "root") {
@@ -4777,8 +4833,21 @@ function bindRows() {
     row.addEventListener("click", event => {
       if (event.target.closest("input, button")) return;
       const tracks = visibleTracks();
-      const queue = tracks.length ? tracks.map(track => String(track.id)) : state.tracks.map(track => String(track.id));
+      const queue = tracks.length ? tracks.map(track => String(track.id)) : logicalTracks(state.tracks).map(track => String(track.id));
       playTrack(row.dataset.trackRow, queue, viewTitle()).catch(error => msg(error.message));
+    });
+  });
+
+  document.querySelectorAll("[data-format-track]").forEach(button => {
+    button.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      const row = button.closest("[data-track-row]");
+      const variants = new Set(String(row?.querySelector("[data-track-check]")?.dataset.variantIds || "").split(",").filter(Boolean));
+      const selectedId = String(button.dataset.formatTrack || "");
+      const queue = visibleTracks().map(track => (track.variant_ids || [])
+        .some(id => variants.has(String(id))) ? selectedId : String(track.id));
+      playTrack(selectedId, queue, viewTitle()).catch(error => msg(error.message));
     });
   });
 
@@ -5051,7 +5120,7 @@ qs("addToPlaylistBtn").addEventListener("click", async () => {
 
 qs("removeSelectedBtn").addEventListener("click", async () => {
   if (state.view.type !== "playlist") return;
-  const ids = new Set(selectedTrackIds());
+  const ids = new Set(selectedVariantIds());
   const playlist = playlistBySlug(state.view.slug);
   if (!ids.size || !playlist) return;
   await savePlaylistTracks(playlist, playlist.track_ids.map(String).filter(id => !ids.has(id)));
@@ -5087,9 +5156,10 @@ qs("deleteSelectedBtn").addEventListener("click", async () => {
     return;
   }
 
-  const ids = selectedTrackIds();
+  const selectedItems = selectedTrackIds();
+  const ids = selectedVariantIds();
   if (!ids.length) return;
-  if (!confirm(`Delete ${ids.length} audio file${ids.length === 1 ? "" : "s"} from Jukebox?`)) return;
+  if (!confirm(`Delete ${selectedItems.length} media item${selectedItems.length === 1 ? "" : "s"} and all available formats from Jukebox?`)) return;
   await api("/api/delete", {
     method: "POST",
     body: JSON.stringify({ track_ids: ids })
@@ -5100,7 +5170,8 @@ qs("deleteSelectedBtn").addEventListener("click", async () => {
 
 async function togglePlayback() {
   if (!(state.status && state.status.current_track) && state.tracks.length) {
-    await playTrack(state.tracks[0].id, state.tracks.map(track => String(track.id)), "All Songs");
+    const tracks = logicalTracks(state.tracks);
+    await playTrack(tracks[0].id, tracks.map(track => String(track.id)), "All Songs");
     return;
   }
   const paused = !isPlaybackPaused();
