@@ -21,11 +21,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "1.4.1"
+from youtube_urls import YOUTUBE_HOSTS, canonicalize_source_url
+
+VERSION = "1.4.2"
 MAX_BODY_BYTES = 32 * 1024
 MAX_JOBS = 2
 MAX_JOB_AGE_SECONDS = 60 * 60
-ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
+ALLOWED_HOSTS = YOUTUBE_HOSTS
 AUDIO_QUALITIES = {"best": "0", "320": "320", "256": "256", "192": "192", "128": "128"}
 VIDEO_QUALITIES = {"best": 1080, "1080": 1080, "720": 720, "480": 480, "360": 360}
 
@@ -50,27 +52,7 @@ def safe_diagnostic(exc: Exception) -> str:
 
 
 def validate_source_url(value: object) -> str:
-    raw = str(value or "").strip()
-    if not raw or len(raw) > 4096:
-        raise ValueError("Paste a supported YouTube or YouTube Music link")
-    parsed = urlparse(raw)
-    host = (parsed.hostname or "").casefold().rstrip(".")
-    try:
-        port = parsed.port
-    except ValueError as exc:
-        raise ValueError("Unsupported source link") from exc
-    if parsed.scheme != "https" or host not in ALLOWED_HOSTS or parsed.username or parsed.password or port not in {None, 443}:
-        raise ValueError("Unsupported source link")
-    if host == "youtu.be":
-        if not re.fullmatch(r"[A-Za-z0-9_-]{6,20}", parsed.path.strip("/")):
-            raise ValueError("Unsupported source link")
-    elif parsed.path == "/watch":
-        video_id = str((parse_qs(parsed.query).get("v") or [""])[0])
-        if not re.fullmatch(r"[A-Za-z0-9_-]{6,20}", video_id):
-            raise ValueError("Unsupported source link")
-    elif parsed.path not in {"/playlist", "/shorts", "/live"} and not parsed.path.startswith(("/shorts/", "/live/", "/playlist/")):
-        raise ValueError("Unsupported source link")
-    return raw
+    return canonicalize_source_url(value)
 
 
 def _thumbnail_list(value: object) -> list[dict[str, object]]:

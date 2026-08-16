@@ -11,18 +11,13 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse
 
 from . import import_companion
+from .youtube_urls import YOUTUBE_HOSTS, canonicalize_source_url
 
 
-ALLOWED_SOURCE_HOSTS = {
-    "youtube.com",
-    "www.youtube.com",
-    "m.youtube.com",
-    "music.youtube.com",
-    "youtu.be",
-}
+ALLOWED_SOURCE_HOSTS = YOUTUBE_HOSTS
 MAX_INSPECTION_ITEMS = 500
 MAX_ACTIVE_JOBS = 2
 MAX_RETAINED_JOBS = 40
@@ -70,26 +65,7 @@ class QuietLogger:
 
 
 def validate_source_url(value: object) -> str:
-    url = str(value or "").strip()
-    if not url or len(url) > 4096:
-        raise ValueError("Paste a supported YouTube or YouTube Music link")
-    parsed = urlparse(url)
-    hostname = (parsed.hostname or "").casefold().rstrip(".")
-    if parsed.scheme != "https" or hostname not in ALLOWED_SOURCE_HOSTS:
-        raise ValueError("This is not a supported YouTube or YouTube Music link")
-    if parsed.username or parsed.password or parsed.port not in {None, 443}:
-        raise ValueError("This is not a supported YouTube or YouTube Music link")
-    if hostname == "youtu.be":
-        if not parsed.path.strip("/"):
-            raise ValueError("This is not a supported YouTube or YouTube Music link")
-    elif parsed.path not in {"/watch", "/playlist", "/shorts", "/live"} and not parsed.path.startswith(("/watch/", "/playlist/")):
-        raise ValueError("This is not a supported YouTube or YouTube Music link")
-    query = parse_qs(parsed.query)
-    video_id = str((query.get("v") or [""])[0]).strip()
-    playlist_id = str((query.get("list") or [""])[0]).strip()
-    if parsed.path == "/watch" and re.fullmatch(r"[A-Za-z0-9_-]{6,20}", video_id) and playlist_id.startswith("RD"):
-        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", urlencode({"v": video_id}), ""))
-    return url
+    return canonicalize_source_url(value)
 
 
 def _private_ytdlp_options() -> dict[str, object]:

@@ -98,18 +98,18 @@ class LinkImportTest(unittest.TestCase):
 
     def test_source_validation_is_https_and_host_exact(self):
         self.assertEqual(
-            link_import.validate_source_url("https://music.youtube.com/playlist?list=abc"),
-            "https://music.youtube.com/playlist?list=abc",
+            link_import.validate_source_url("https://music.youtube.com/playlist?list=abc123"),
+            "https://www.youtube.com/playlist?list=abc123",
         )
         self.assertEqual(
             link_import.validate_source_url("https://www.youtube.com/watch?v=video000001&list=RDvideo000001&start_radio=1"),
             "https://www.youtube.com/watch?v=video000001",
         )
         for value in (
-            "http://music.youtube.com/watch?v=abc",
-            "https://youtube.com.evil.example/watch?v=abc",
-            "https://user@youtube.com/watch?v=abc",
-            "https://youtube.com:444/watch?v=abc",
+            "http://music.youtube.com/watch?v=abc123",
+            "https://youtube.com.evil.example/watch?v=abc123",
+            "https://user@youtube.com/watch?v=abc123",
+            "https://youtube.com:444/watch?v=abc123",
             "https://youtube.com/@channel",
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
