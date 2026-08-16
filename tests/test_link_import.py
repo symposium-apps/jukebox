@@ -214,10 +214,12 @@ class LinkImportTest(unittest.TestCase):
             library = root / "Music"
             state = root / "State"
 
+            playlist_calls = []
+
             def scan_callback(force=False):
                 return [
                     {"id": f"track-{index}", "relative_path": path.relative_to(library).as_posix()}
-                    for index, path in enumerate(sorted(library.rglob("*.mp4")), 1)
+                    for index, path in enumerate(sorted(path for path in library.rglob("*") if path.suffix in {".mp3", ".mp4"}), 1)
                 ]
 
             extractor = mock.patch.object(link_import, "_extract_mp3", side_effect=lambda _source, output: output.write_bytes(b"ID3-audio-copy"))
@@ -229,12 +231,13 @@ class LinkImportTest(unittest.TestCase):
                     "item_ids": ["video000001"],
                     "format": "mp4",
                     "quality": "720",
+                    "destination": {"type": "playlist_existing", "slug": "road-trip", "name": "Road Trip"},
                 },
                 library_dir=library,
                 state_dir=state,
                 quota_bytes=100 * 1024 * 1024,
                 scan_callback=scan_callback,
-                playlist_callback=lambda *_: None,
+                playlist_callback=lambda destination, track_ids: playlist_calls.append((destination, track_ids)),
                 ydl_class=DownloadYDL,
             )
             deadline = time.time() + 5
@@ -251,6 +254,12 @@ class LinkImportTest(unittest.TestCase):
             index = link_import._load_index(state / "youtube-import-index.json")
             self.assertIn("video000001:mp4", index)
             self.assertIn("video000001:mp3", index)
+            self.assertEqual(playlist_calls, [({"type": "playlist_existing", "name": "Road Trip", "slug": "road-trip"}, ["track-2"])])
+
+    def test_existing_playlist_destination_requires_a_selected_slug(self):
+        inspection = {"source_type": "video", "title": "Video"}
+        with self.assertRaisesRegex(ValueError, "Choose an existing playlist"):
+            link_import._destination({"destination": {"type": "playlist_existing"}}, inspection)
 
 
 if __name__ == "__main__":

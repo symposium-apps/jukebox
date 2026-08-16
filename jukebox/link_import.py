@@ -343,11 +343,14 @@ def _destination(payload: dict[str, Any], inspection: dict[str, Any]) -> dict[st
     destination_type = str(data.get("type") or ("playlist_new" if inspection["source_type"] == "playlist" else "detected_album"))
     if destination_type not in {"detected_album", "playlist_new", "playlist_existing", "album"}:
         raise ValueError("Unsupported import destination")
-    return {
+    destination = {
         "type": destination_type,
         "name": str(data.get("name") or inspection.get("title") or "Imported music")[:100],
         "slug": str(data.get("slug") or "")[:120],
     }
+    if destination_type == "playlist_existing" and not destination["slug"]:
+        raise ValueError("Choose an existing playlist")
+    return destination
 
 
 def create_job(

@@ -148,23 +148,23 @@
 
   function settingsControls() {
     const playlists = (state.playlists || []).map(item => `<option value="${esc(item.slug)}" ${model.destinationSlug === item.slug ? "selected" : ""}>${esc(item.name)}</option>`).join("");
-    const radio = (type, label, hint = "") => `<button type="button" class="jbi-radio${model.destinationType === type ? " jbi-radio--active" : ""}" data-destination="${type}"><span class="jbi-radio-dot"></span><span><b>${esc(label)}</b>${hint ? `<small>${esc(hint)}</small>` : ""}</span></button>`;
     const qualityOptions = model.format === "mp4"
       ? `<option value="best">Best up to 1080p</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option><option value="360">360p</option>`
       : `<option value="best">Best available</option><option value="320">320 kbps</option><option value="256">256 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps</option>`;
+    const destinationOptions = `<option value="detected_album">Detected artist and album</option><option value="playlist_existing" ${(state.playlists || []).length ? "" : "disabled"}>Existing Jukebox playlist</option><option value="playlist_new">New Jukebox playlist</option><option value="album">One album folder</option>`;
+    const selectedPlaylist = (state.playlists || []).find(item => item.slug === model.destinationSlug);
+    const destinationDetail = model.destinationType === "playlist_existing"
+      ? `<label class="jbi-subfield"><span>Choose playlist</span><select class="jbi-select" data-existing><option value="">Select a playlist…</option>${playlists}</select></label>${selectedPlaylist ? `<div class="jbi-destination-confirm" role="status"><b>${model.format === "mp4" ? "Video" : "Track"} will be added to ${esc(selectedPlaylist.name)}</b><span>${model.format === "mp4" ? "The separate MP3 listening copy stays in the library without duplicating this playlist entry." : "The imported track will appear in this playlist when processing finishes."}</span></div>` : ""}`
+      : model.destinationType === "album"
+        ? `<label class="jbi-subfield"><span>Album folder</span><input class="jbi-select" data-destination-name value="${esc(model.destinationName || model.inspection.title)}" aria-label="Album folder name"></label>`
+        : model.destinationType === "playlist_new"
+          ? `<label class="jbi-subfield"><span>Playlist name</span><input class="jbi-select" data-destination-name value="${esc(model.destinationName || model.inspection.title)}" aria-label="New playlist name"></label>`
+          : `<div class="jbi-destination-confirm"><b>Keep the detected organization</b><span>Each item uses its artist and album metadata.</span></div>`;
     return `<div class="jbi-grid2">
       <div class="jbi-field"><div class="jbi-label">${model.format === "mp4" ? "Video quality" : "Audio quality"}</div><select class="jbi-select" data-quality>${qualityOptions}</select></div>
       <div class="jbi-field"><div class="jbi-label">Artwork</div><button class="jbi-check" type="button" data-artwork>${box(model.artwork)}<span><b>${model.format === "mp4" ? "Save companion artwork" : "Save and embed artwork"}</b><small>Playlist artwork is not forced onto every track.</small></span></button></div>
     </div>
-    <div class="jbi-field"><div class="jbi-label">Destination</div><div class="jbi-radios">
-      ${radio("playlist_new", `Create playlist “${model.inspection.title}”`, "Tracks keep their detected artist and album.")}
-      ${radio("detected_album", "Organize using detected artist and album")}
-      ${radio("album", "Put everything in one album folder")}
-      ${radio("playlist_existing", "Add to an existing Jukebox playlist")}
-    </div>
-    ${model.destinationType === "playlist_existing" ? `<select class="jbi-select" data-existing style="margin-top:9px"><option value="">Choose playlist…</option>${playlists}</select>` : ""}
-    ${model.destinationType === "album" ? `<input class="jbi-select" data-destination-name value="${esc(model.destinationName || model.inspection.title)}" aria-label="Album folder name" style="margin-top:9px">` : ""}
-    </div>`;
+    <div class="jbi-field jbi-destination"><div class="jbi-label">Save to</div><select class="jbi-select" data-destination-type>${destinationOptions}</select>${destinationDetail}</div>`;
   }
 
   function trackRow(item) {
@@ -178,9 +178,9 @@
     const data = model.inspection;
     const isPlaylist = data.source_type === "playlist" || data.items.length > 1;
     if (!isPlaylist) {
-      const body = `${hero(data)}${formatControls()}${settingsControls()}<p class="jbi-help">If the requested quality is unavailable, Jukebox chooses the best lower compatible quality.</p>`;
+      const body = `<div class="jbi-preview-grid"><aside class="jbi-preview-source">${hero(data)}<div class="jbi-output-note"><b>Nothing downloads until you confirm.</b><span>Video imports create an MP4, a separate MP3 listening copy, and a private HLS stream.</span></div></aside><div class="jbi-preview-settings">${formatControls()}${settingsControls()}<p class="jbi-help">If the requested quality is unavailable, Jukebox chooses the best lower compatible quality.</p></div></div>`;
       const foot = `<span class="jbi-spacer"></span>${button("Back", "ghost", "data-back")}${button(`${icon(icons.download)}Download`, "primary", "data-download")}`;
-      return shell("Import track", body, foot);
+      return shell("Review import", body, foot, true);
     }
     const available = data.items.filter(item => !item.unavailable);
     const filtered = data.items.filter(item => !model.query || `${item.title} ${item.artist}`.toLowerCase().includes(model.query.toLowerCase()));
@@ -201,6 +201,10 @@
     modalHost.innerHTML = model.screen === "inspecting" ? pasteView(true) : model.screen === "preview" ? previewView() : pasteView(false);
     const quality = modalHost.querySelector("[data-quality]");
     if (quality) quality.value = model.quality;
+    const destinationType = modalHost.querySelector("[data-destination-type]");
+    if (destinationType) destinationType.value = model.destinationType;
+    const download = modalHost.querySelector("[data-download]");
+    if (download && model.destinationType === "playlist_existing" && !model.destinationSlug) download.disabled = true;
   }
 
   async function inspectLink() {
@@ -231,6 +235,12 @@
 
   async function startDownload() {
     if (!model.inspection || !model.selected.size) return;
+    if (model.destinationType === "playlist_existing" && !model.destinationSlug) {
+      model.error = "Choose the playlist for this download.";
+      renderModal();
+      modalHost.querySelector("[data-existing]")?.focus();
+      return;
+    }
     const control = modalHost.querySelector("[data-download]");
     if (control) control.disabled = true;
     try {
@@ -349,6 +359,22 @@
     if (event.target.matches("[data-quality]")) model.quality = event.target.value;
     if (event.target.matches("[data-existing]")) model.destinationSlug = event.target.value;
     if (event.target.matches("[data-destination-name]")) model.destinationName = event.target.value;
+  });
+
+  modalHost.addEventListener("change", event => {
+    if (event.target.matches("[data-quality]")) model.quality = event.target.value;
+    if (event.target.matches("[data-existing]")) {
+      model.destinationSlug = event.target.value;
+      const playlist = (state.playlists || []).find(item => item.slug === model.destinationSlug);
+      model.destinationName = playlist ? playlist.name : "";
+      renderModal();
+    }
+    if (event.target.matches("[data-destination-type]")) {
+      model.destinationType = event.target.value;
+      model.destinationSlug = "";
+      model.destinationName = model.destinationType === "playlist_new" ? model.inspection.title : "";
+      renderModal();
+    }
   });
 
   modalHost.addEventListener("keydown", event => {

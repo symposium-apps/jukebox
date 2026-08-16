@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "1.3.1"
+VERSION = "1.4.0"
 MAX_BODY_BYTES = 32 * 1024
 MAX_JOBS = 2
 MAX_JOB_AGE_SECONDS = 60 * 60
