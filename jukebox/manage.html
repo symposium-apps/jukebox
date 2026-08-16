@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="jukebox-version" content="__JUKEBOX_VERSION__">
   <title>Jukebox</title>
   <meta name="application-name" content="Jukebox">
   <meta name="theme-color" content="#050507">
@@ -15,8 +16,38 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/link-import.css">
-  <link rel="stylesheet" href="/static/media-player.css">
+  <link rel="stylesheet" href="/static/link-import.css?v=__JUKEBOX_VERSION__">
+  <link rel="stylesheet" href="/static/media-player.css?v=__JUKEBOX_VERSION__">
+  <script>
+    (() => {
+      const version = document.querySelector('meta[name="jukebox-version"]')?.content || "";
+      const reloadKey = "jukebox-stale-release-reload";
+      let checking = false;
+      async function checkRelease() {
+        if (checking || document.visibilityState === "hidden") return;
+        checking = true;
+        try {
+          const response = await fetch("/_sym/health", { cache: "no-store", credentials: "same-origin" });
+          const health = response.ok ? await response.json() : null;
+          const current = String(health?.version || "");
+          if (current && version && current !== version && sessionStorage.getItem(reloadKey) !== current) {
+            sessionStorage.setItem(reloadKey, current);
+            location.reload();
+            return;
+          }
+          if (current === version) sessionStorage.removeItem(reloadKey);
+        } catch (_) {
+          // Stay usable offline or while the workspace route reconnects.
+        } finally {
+          checking = false;
+        }
+      }
+      window.addEventListener("pageshow", checkRelease);
+      window.addEventListener("focus", checkRelease);
+      document.addEventListener("visibilitychange", checkRelease);
+      window.setInterval(checkRelease, 60 * 1000);
+    })();
+  </script>
   <style>
     :root {
       color-scheme: dark;
@@ -5125,8 +5156,8 @@ refresh().catch(error => {
 }).finally(hideAppLoader);
 window.setInterval(() => refreshStreamAccess().catch(() => {}), 5 * 60 * 1000);
 </script>
-<script src="/static/link-import.js"></script>
-<script src="/static/media-player.js"></script>
+<script src="/static/link-import.js?v=__JUKEBOX_VERSION__"></script>
+<script src="/static/media-player.js?v=__JUKEBOX_VERSION__"></script>
 </body>
 </html>
 

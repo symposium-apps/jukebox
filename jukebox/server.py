@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import colorsys
@@ -2099,7 +2099,7 @@ def upload_path(filename: str, target_album: str = "") -> Path:
 
 
 def manage_page() -> str:
-    return Path(__file__).with_name("manage.html").read_text(encoding="utf-8")
+    return Path(__file__).with_name("manage.html").read_text(encoding="utf-8").replace("__JUKEBOX_VERSION__", __version__)
 
 
 def api_receipt(action: str, data: object, changed: bool = False) -> dict[str, object]:
