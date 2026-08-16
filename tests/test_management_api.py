@@ -236,7 +236,35 @@ class ManagementApiTest(unittest.TestCase):
             )[0],
             200,
         )
+        self.assertEqual(
+            self.request(
+                "POST",
+                "/api/v1/library/rescan",
+                {},
+                {
+                    "X-Jukebox-Session": browser_session,
+                    "Origin": "null",
+                    "X-Forwarded-Host": "internal-app-gateway",
+                    "Sec-Fetch-Site": "cross-site",
+                },
+            )[0],
+            200,
+        )
         self.assertEqual(self.request("POST", "/api/v1/library/rescan", {}, {"Cookie": cookie})[0], 403)
+        self.assertEqual(
+            self.request(
+                "POST",
+                "/api/v1/library/rescan",
+                {},
+                {
+                    "Cookie": cookie,
+                    "Origin": "null",
+                    "X-Forwarded-Host": "internal-app-gateway",
+                    "Sec-Fetch-Site": "cross-site",
+                },
+            )[0],
+            403,
+        )
         self.assertEqual(
             self.request(
                 "POST",

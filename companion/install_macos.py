@@ -92,7 +92,7 @@ def main() -> None:
         "CFBundleInfoDictionaryVersion": "6.0",
         "CFBundleName": "Jukebox Import Companion",
         "CFBundlePackageType": "APPL",
-        "CFBundleVersion": "1.3.0",
+        "CFBundleVersion": "1.3.1",
         "LSMinimumSystemVersion": "12.0",
         "LSUIElement": True,
     }

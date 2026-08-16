@@ -2369,7 +2369,13 @@ class Handler(BaseHTTPRequestHandler):
             return False
         if authenticated and self.command in {"POST", "PUT", "DELETE", "PATCH"}:
             bearer = bearer_password(self.headers)
-            if not passwords_match(bearer, password) and not self.browser_mutation_origin_allowed():
+            explicit_session = str(self.headers.get("X-Jukebox-Session", "") or "").strip()
+            explicit_session_authenticated = bool(explicit_session and session_is_valid(explicit_session, password))
+            if (
+                not passwords_match(bearer, password)
+                and not explicit_session_authenticated
+                and not self.browser_mutation_origin_allowed()
+            ):
                 self.send_json({"ok": False, "error": "Forbidden"}, HTTPStatus.FORBIDDEN)
                 return False
         return True
