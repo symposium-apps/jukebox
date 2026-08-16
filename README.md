@@ -17,7 +17,7 @@ Jukebox accepts MP3, MP4, M4A, AAC, OGG, WAV, and FLAC media. Album artwork can 
 
 ## Import from YouTube and YouTube Music
 
-Use **Import** beside Upload and Folder to paste a public YouTube or YouTube Music track, album, or playlist link. Jukebox inspects the source before downloading, lets you choose individual available tracks, MP3 or MP4 output, quality, artwork, and the destination album or playlist, then keeps progress visible in a persistent Downloads drawer. MP3 files are tagged with embedded artwork; MP4 files retain playable video and audio streams; both receive a companion album cover when available. Playlist imports retain per-track metadata and can create or update a Jukebox playlist.
+Use **Import** beside Upload and Folder to paste a public YouTube or YouTube Music track, album, or playlist link. Jukebox inspects the source before downloading, lets you choose individual available tracks, audio-only MP3 or video output, quality, artwork, and the destination album or playlist, then keeps progress visible in a persistent Downloads drawer. A video import atomically adds the original MP4 and a separate MP3 audio copy from the same download. Jukebox then prepares a private six-second HLS VOD stream in background state while byte-range MP4 playback remains immediately available. Playlist imports retain per-track metadata and can create or update a Jukebox playlist.
 
 YouTube currently rejects anonymous media delivery from many datacenter IP ranges. The normal accountless path therefore runs the open-source downloader on the user's linked AI Computer and returns the completed media to the profile-scoped Jukebox installation over the private tailnet. It uses `yt-dlp`, `yt-dlp-ejs`, and `yt-dlp-getpot-wpc` as libraries/components, plus FFmpeg, Node.js 20+, and a local Chrome/Chromium engine for anonymous proof-of-origin challenges. It does **not** use a Windows downloader GUI, a YouTube account, cookies, OAuth, or an exported browser session.
 
@@ -37,6 +37,12 @@ POST /api/import/jobs/clear
 ```
 
 Authenticated automation can use the equivalent versioned routes under `/api/v1/imports`. Inspections expire after 30 minutes, source hosts are restricted to exact YouTube domains, downloads use private temporary state before atomic placement in UserData, and completed source IDs are indexed privately to avoid duplicate imports.
+
+## Browser audio and video player
+
+MP4 tracks open a dedicated responsive video surface with full-screen and audio-only actions. The existing browser player remains the transport master, so play, pause, queue changes, elapsed time, duration, Media Session state, and the custom scrubber stay synchronized with the visible video. Seeking updates continuously while the range control is dragged or clicked; cancelled byte-range requests are treated as normal browser seek behavior rather than server errors.
+
+The player reports current-track delivery state directly: **Streaming audio/video**, **Saving for offline play**, **Saved on this device**, **Preparing HLS stream**, or **HLS stream ready**. Audio files can use the bounded private browser cache. MP4 files are not copied wholesale into that audio cache; their video uses protected byte ranges immediately and switches to the generated HLS VOD on browsers with native HLS support.
 
 ## App-owned storage
 

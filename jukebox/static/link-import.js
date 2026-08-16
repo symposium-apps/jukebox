@@ -115,7 +115,7 @@
   function shell(title, body, foot, large = false) {
     return `<div class="jbi-scrim" data-close-scrim>
       <section class="jbi-modal${large ? " jbi-modal--playlist" : ""}" role="dialog" aria-modal="true" aria-labelledby="jbiTitle">
-        <header class="jbi-head"><h2 id="jbiTitle">${esc(title)}</h2><span class="jbi-source">${icon(icons.link)}Source link</span><button class="jbi-x" type="button" data-close aria-label="Close">×</button></header>
+        <header class="jbi-head"><div class="jbi-head-copy"><span>Link import</span><h2 id="jbiTitle">${esc(title)}</h2></div><button class="jbi-x" type="button" data-close aria-label="Close">×</button></header>
         <div class="jbi-body">${body}</div>
         <footer class="jbi-foot">${foot}</footer>
       </section>
@@ -125,10 +125,11 @@
   function pasteView(inspecting = false) {
     const error = model.error ? `<div class="jbi-error" role="alert"><span>!</span><span><b>${esc(model.error)}</b>${model.error.includes("private") ? "Ask the owner to make it unlisted or public, then try again." : "The pasted link has been kept so you can correct it."}</span></div>` : `<p class="jbi-help">Supported: YouTube and YouTube Music videos, tracks, albums, and playlists</p>`;
     const inspect = inspecting ? `<div class="jbi-inspecting" role="status" aria-live="polite"><span class="jbi-spin"></span><div><b>Inspecting link…</b><span>Reading tracks and available formats.</span></div></div>` : error;
-    const body = `<p class="jbi-lede">Paste a YouTube or YouTube Music link to a track, album, or playlist.</p>
-      <textarea class="jbi-url" rows="2" data-url aria-label="Music link" aria-invalid="${model.error ? "true" : "false"}" ${inspecting ? "readonly" : ""}>${esc(model.url)}</textarea>${inspect}`;
-    const foot = `<p class="jbi-note">Enter to inspect · Esc to close</p><span class="jbi-spacer"></span>${button("Cancel", "ghost", "data-close")}${button(`${inspecting ? '<span class="jbi-spin" style="width:14px;height:14px"></span>' : ""}Inspect`, "primary", `data-inspect ${inspecting ? "disabled" : ""}`)}`;
-    return shell("Import from link", body, foot);
+    const body = `<div class="jbi-paste-intro"><span class="jbi-paste-icon">${icon(icons.link)}</span><div><h3>Add music or a music video</h3><p>Paste one public YouTube or YouTube Music URL. Jukebox will inspect it before anything downloads.</p></div></div>
+      <label class="jbi-url-label"><span>Source URL</span><textarea class="jbi-url" rows="2" data-url aria-label="Music link" placeholder="https://youtube.com/watch?v=…" aria-invalid="${model.error ? "true" : "false"}" ${inspecting ? "readonly" : ""}>${esc(model.url)}</textarea></label>${inspect}
+      <div class="jbi-capabilities"><span>MP3 audio</span><span>MP4 + audio copy</span><span>HLS streaming</span></div>`;
+    const foot = `<p class="jbi-note">Public links only · no YouTube account required</p><span class="jbi-spacer"></span>${button("Cancel", "ghost", "data-close")}${button(`${inspecting ? '<span class="jbi-spin" style="width:14px;height:14px"></span>' : ""}Inspect link`, "primary", `data-inspect ${inspecting ? "disabled" : ""}`)}`;
+    return shell("Import from YouTube", body, foot);
   }
 
   function hero(data) {
@@ -140,8 +141,8 @@
 
   function formatControls() {
     return `<div class="jbi-field"><div class="jbi-label">Format</div><div class="jbi-formats">
-      <button class="jbi-format${model.format === "mp3" ? " jbi-format--active" : ""}" type="button" data-format="mp3" aria-pressed="${model.format === "mp3"}"><b>MP3 Audio</b><span>Music only · smaller files</span></button>
-      <button class="jbi-format${model.format === "mp4" ? " jbi-format--active" : ""}" type="button" data-format="mp4" aria-pressed="${model.format === "mp4"}"><b>MP4 Video</b><span>1080p video and audio</span></button>
+      <button class="jbi-format${model.format === "mp3" ? " jbi-format--active" : ""}" type="button" data-format="mp3" aria-pressed="${model.format === "mp3"}"><b>Audio only</b><span>MP3 · compact · saved for offline listening</span></button>
+      <button class="jbi-format${model.format === "mp4" ? " jbi-format--active" : ""}" type="button" data-format="mp4" aria-pressed="${model.format === "mp4"}"><b>Video + audio copy</b><span>MP4 video, separate MP3, and HLS stream</span></button>
     </div></div>`;
   }
 

@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -572,6 +573,27 @@ def _cover_from_audio(audio_path: Path, destination_dir: Path) -> None:
         return
 
 
+def _extract_mp3(video_path: Path, output_path: Path) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("FFmpeg is required to create the audio copy")
+    temporary = output_path.with_name(f".{output_path.name}.{uuid.uuid4().hex}.tmp.mp3")
+    try:
+        subprocess.run(
+            [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_path), "-map", "0:a:0", "-vn", "-c:a", "libmp3lame", "-q:a", "2", "-map_metadata", "0", str(temporary)],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=900,
+        )
+        if not temporary.is_file() or temporary.stat().st_size <= 0:
+            raise RuntimeError("Audio extraction produced no MP3")
+        os.replace(temporary, output_path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def _download_one(job_id: str, item_index: int, *, library_dir: Path, work_root: Path, quota_bytes: int, index_path: Path, ydl_class: type | None) -> str:
     with IMPORT_LOCK:
         job = JOBS[job_id]
@@ -702,6 +724,14 @@ def _download_one(job_id: str, item_index: int, *, library_dir: Path, work_root:
         title = str(downloaded_info.get("track") or downloaded_info.get("title") or item["title"])
     else:
         artist, album, title = str(item["artist"]), str(item["album"]), str(item["title"])
+    paired_audio: Path | None = None
+    if output_format == "mp4":
+        _update_item(job_id, item_index, status="processing", stage="Creating audio copy", progress=None)
+        paired_audio = work / "audio-copy.mp3"
+        _extract_mp3(media_path, paired_audio)
+    required_bytes = media_path.stat().st_size + (paired_audio.stat().st_size if paired_audio is not None else 0)
+    if _directory_size(library_dir.parent) + required_bytes > quota_bytes:
+        raise RuntimeError("Jukebox does not have enough storage for this import")
     if destination["type"] == "album":
         folder_name = _safe_component(destination["name"], "Imported music")
     else:
@@ -715,14 +745,22 @@ def _download_one(job_id: str, item_index: int, *, library_dir: Path, work_root:
     prefix = f"{int(item['index']):02d} " if int(item.get("index") or 0) else ""
     final_path = _unique_destination(destination_dir / f"{prefix}{_safe_component(title, 'Track', 140)}.{output_format}")
     os.replace(media_path, final_path)
+    paired_final: Path | None = None
+    if paired_audio is not None:
+        paired_final = _unique_destination(destination_dir / f"{prefix}{_safe_component(title, 'Track', 140)}.mp3")
+        os.replace(paired_audio, paired_final)
     if include_artwork:
         _cover_from_work(work, destination_dir)
         if output_format == "mp3":
             _cover_from_audio(final_path, destination_dir)
+        elif paired_final is not None:
+            _cover_from_audio(paired_final, destination_dir)
     relative = final_path.relative_to(library_dir).as_posix()
     with INDEX_LOCK:
         source_index = _load_index(index_path)
         source_index[index_key] = relative
+        if paired_final is not None:
+            source_index[f"{item['id']}:mp3"] = paired_final.relative_to(library_dir).as_posix()
         _persist_index(index_path, source_index)
     return relative
 

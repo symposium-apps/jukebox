@@ -16,6 +16,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/link-import.css">
+  <link rel="stylesheet" href="/static/media-player.css">
   <style>
     :root {
       color-scheme: dark;
@@ -3239,7 +3240,7 @@ function scheduleServiceWorkerAudioCache(delay = 250) {
     const tracks = trackMap();
     const current = tracks.get(String(state.playback.currentTrackId || ""));
     const next = tracks.get(queuedTrackId(1));
-    const selected = [current, next].filter((track, index, items) => track && items.findIndex(item => String(item.id) === String(track.id)) === index);
+    const selected = [current, next].filter((track, index, items) => track && String(track.extension || "").toLowerCase() !== ".mp4" && items.findIndex(item => String(item.id) === String(track.id)) === index);
     postServiceWorkerAudioCache({
       type: "configure",
       generation: state.cacheGeneration,
@@ -3588,8 +3589,8 @@ function scheduleAudioCaching() {
     return false;
   });
   if (audioCache.active?.role === "next" && audioCache.active.key !== nextKey) audioCache.active.controller.abort();
-  if (current) enqueueAudioCache(current, "current");
-  if (nextKey) enqueueAudioCache(next, "next");
+  if (current && String(current.extension || "").toLowerCase() !== ".mp4") enqueueAudioCache(current, "current");
+  if (nextKey && String(next.extension || "").toLowerCase() !== ".mp4") enqueueAudioCache(next, "next");
 }
 
 async function cachedAudioObjectUrl(track) {
@@ -5125,6 +5126,7 @@ refresh().catch(error => {
 window.setInterval(() => refreshStreamAccess().catch(() => {}), 5 * 60 * 1000);
 </script>
 <script src="/static/link-import.js"></script>
+<script src="/static/media-player.js"></script>
 </body>
 </html>
 

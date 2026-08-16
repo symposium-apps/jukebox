@@ -220,6 +220,9 @@ class LinkImportTest(unittest.TestCase):
                     for index, path in enumerate(sorted(library.rglob("*.mp4")), 1)
                 ]
 
+            extractor = mock.patch.object(link_import, "_extract_mp3", side_effect=lambda _source, output: output.write_bytes(b"ID3-audio-copy"))
+            extractor.start()
+            self.addCleanup(extractor.stop)
             job = link_import.create_job(
                 {
                     "inspection_id": inspected["inspection_id"],
@@ -242,9 +245,12 @@ class LinkImportTest(unittest.TestCase):
                 time.sleep(0.02)
             self.assertEqual(job["status"], "complete", job)
             videos = list(library.rglob("*.mp4"))
+            audio_copies = list(library.rglob("*.mp3"))
             self.assertEqual(len(videos), 1)
+            self.assertEqual(len(audio_copies), 1)
             index = link_import._load_index(state / "youtube-import-index.json")
             self.assertIn("video000001:mp4", index)
+            self.assertIn("video000001:mp3", index)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ Jukebox exposes a profile-scoped music library through authenticated REST and MC
 1. Call `jukebox_get_context` through the installed app's local `/mcp`, or read `GET /api/agent/bootstrap`.
 2. The password is owned by the installed instance at `UserData/Jukebox API/password.txt`. Never ask Jukebox to display or return its value.
 3. If the file is absent or empty, remote REST and MCP are intentionally disabled and return `401 Unauthorized`.
-4. Never put the password in a URL, query string, chat message, log, activity event, report, or committed file. Send it only in the `Authorization: Bearer …` header.
+4. Never put the password in a URL, query string, chat message, log, activity event, report, or committed file. Send it only in the `Authorization: Bearer ***` header.
 
 ## Upload contract
 
@@ -19,11 +19,11 @@ Jukebox exposes a profile-scoped music library through authenticated REST and MC
 
 ## Link import contract
 
-- Inspect public YouTube or YouTube Music links with `POST /api/v1/imports/inspect`, then start selected MP3 items with `POST /api/v1/imports/jobs`.
+- Inspect public YouTube or YouTube Music links with `POST /api/v1/imports/inspect`, then start selected MP3 or MP4 items with `POST /api/v1/imports/jobs`.
 - Treat the returned `inspection_id` and item IDs as the server-owned selection boundary; never invent extractor URLs or write directly into an installed release.
-- MP4 is intentionally `coming_next` until Jukebox has a first-class video library and player. Do not bypass that gate by placing unindexed MP4 files in UserData.
-- Imports run asynchronously in private app state and atomically place completed tagged MP3/artwork into UserData. Poll the job API instead of starting a second downloader process.
-- Never provide browser cookies or account credentials unless a future explicit credential design is approved. Private, age-gated, region-restricted, or account-only items may remain unavailable.
+- MP4 remains a first-class capability only while the dedicated visible player, separate MP3 extraction, protected byte-range fallback, and private HLS preparation are functional and browser-tested.
+- Imports run asynchronously in private app state and atomically place completed media/artwork into UserData. Poll the job API instead of starting a second downloader process.
+- Ordinary public-content imports remain accountless. Do not add YouTube account auth, automatic browser-cookie access, OAuth, or exported browser sessions. Only explicit profile-scoped cookie/proxy fallback files are permitted.
 
 ## Managed app boundary
 

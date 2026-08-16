@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import __version__
 from . import link_import
+from . import streaming
 from .audio import MpvJukebox, default_ipc_path
 from .display import create_display
 
@@ -106,6 +107,8 @@ STORAGE_CACHE_EXPIRES = 0.0
 STORAGE_CACHE_TTL = 3600.0
 SESSION_SECRET_CACHE: bytes | None = None
 AUTH_FAILURES: dict[str, list[float]] = {}
+AUDIO_COPY_LOCK = threading.RLock()
+AUDIO_COPY_STATES: dict[str, str] = {}
 HOME_FOCUS_ACTIONS = {
     0: "menu",
     1: "previous",
@@ -133,6 +136,7 @@ def ensure_dirs() -> None:
     PLAYLIST_DIR.mkdir(parents=True, exist_ok=True)
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     API_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    streaming.configure(HOME)
     try:
         API_CONFIG_DIR.chmod(0o700)
     except OSError:
@@ -932,9 +936,10 @@ def scan_library(force: bool = False) -> list[dict[str, object]]:
         cover_pixel = metadata.get("cover_pixel") or folder_cover.get("cover_pixel", "")
         cover_lcd = metadata.get("cover_lcd") or folder_cover.get("cover_lcd", "")
         cover_lcd_path = metadata.get("cover_lcd_path") or folder_cover.get("cover_lcd_path", "")
+        track_id = track_id_for(path)
         tracks.append(
             {
-                "id": track_id_for(path),
+                "id": track_id,
                 "name": title,
                 "filename": path.name,
                 "relative_path": rel,
@@ -947,8 +952,11 @@ def scan_library(force: bool = False) -> list[dict[str, object]]:
                 "album_cover_pixel": cover_pixel,
                 "album_cover_lcd": cover_lcd,
                 "album_cover_lcd_path": cover_lcd_path,
+                "media_kind": "video" if path.suffix.lower() == ".mp4" else "audio",
             }
         )
+        if force:
+            streaming.prepare(track_id, path)
     with CACHE_LOCK:
         LIBRARY_CACHE = [track.copy() for track in tracks]
         LIBRARY_CACHE_EXPIRES = time.monotonic() + LIBRARY_CACHE_TTL
@@ -999,6 +1007,45 @@ def path_for_track(track_id: str) -> Path:
     if not path.is_file() or not path.is_relative_to(LIBRARY_DIR):
         raise KeyError(f"Track path is invalid: {track_id}")
     return path
+
+
+def audio_copy_status(track_id: str) -> dict[str, object]:
+    source = path_for_track(track_id)
+    if source.suffix.lower() != ".mp4":
+        raise ValueError("Audio copies are only created for videos")
+    expected = source.with_suffix(".mp3")
+    relative = expected.relative_to(LIBRARY_DIR).as_posix()
+    ready_track = next((track for track in scan_library() if str(track.get("relative_path") or "") == relative), None)
+    with AUDIO_COPY_LOCK:
+        state = "ready" if ready_track else AUDIO_COPY_STATES.get(track_id, "not_ready")
+    return {"ok": True, "state": state, "ready": bool(ready_track), "track_id": str(ready_track.get("id") or "") if ready_track else ""}
+
+
+def prepare_audio_copy(track_id: str) -> dict[str, object]:
+    source = path_for_track(track_id)
+    current = audio_copy_status(track_id)
+    if current["ready"]:
+        return current
+    with AUDIO_COPY_LOCK:
+        if AUDIO_COPY_STATES.get(track_id) != "preparing":
+            AUDIO_COPY_STATES[track_id] = "preparing"
+            threading.Thread(target=_create_audio_copy, args=(track_id, source), name=f"jukebox-audio-copy-{track_id[:8]}", daemon=True).start()
+    return audio_copy_status(track_id)
+
+
+def _create_audio_copy(track_id: str, source: Path) -> None:
+    try:
+        destination = source.with_suffix(".mp3")
+        if not destination.exists():
+            link_import._extract_mp3(source, destination)
+        invalidate_library_cache()
+        invalidate_storage_cache()
+        scan_library(force=True)
+        with AUDIO_COPY_LOCK:
+            AUDIO_COPY_STATES[track_id] = "ready"
+    except Exception:
+        with AUDIO_COPY_LOCK:
+            AUDIO_COPY_STATES[track_id] = "failed"
 
 
 def playlist_path(slug: str) -> Path:
@@ -2484,10 +2531,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             api_v1 = path.startswith("/api/v1/") or path in {"/api/v1", "/api/agent/bootstrap"}
             html_route = path in {"/", "/manage", "/mini-sym"}
-            stream_route = path.startswith(("/media/", "/library-art/", "/assets/"))
+            public_asset_route = path.startswith("/static/")
+            stream_route = path.startswith(("/media/", "/hls/", "/library-art/", "/assets/"))
             ticket = str((parse_qs(parsed.query).get("ticket") or [""])[0])
             ticket_access = stream_route and browser_stream_ticket_is_valid(ticket, configured_password())
-            if not ticket_access and not self.require_access(path, html_route=html_route, api_v1=api_v1):
+            if not public_asset_route and not ticket_access and not self.require_access(path, html_route=html_route, api_v1=api_v1):
                 return
             if path in {"/", "/manage"}:
                 self.send_html(manage_page())
@@ -2542,10 +2590,30 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(reinitialize_display())
             elif path == "/api/library":
                 self.send_json({"ok": True, "tracks": scan_library()})
+            elif path.startswith("/api/streaming/"):
+                track_id = unquote(path.removeprefix("/api/streaming/"))
+                source = path_for_track(track_id)
+                details = streaming.prepare(track_id, source)
+                details.update({
+                    "ok": True,
+                    "track_id": track_id,
+                    "direct_url": f"/media/{track_id}",
+                    "hls_url": f"/hls/{track_id}/stream.m3u8" if details["ready"] else "",
+                })
+                self.send_json(details)
+            elif path.startswith("/api/audio-copy/"):
+                self.send_json(audio_copy_status(unquote(path.removeprefix("/api/audio-copy/"))))
             elif path == "/api/playlists":
                 self.send_json({"ok": True, "playlists": list_playlists()})
             elif path.startswith("/media/"):
                 self.serve_media(unquote(path.removeprefix("/media/")))
+            elif path.startswith("/hls/"):
+                relative = unquote(path.removeprefix("/hls/"))
+                track_id, separator, name = relative.partition("/")
+                if not separator:
+                    raise KeyError("Stream artifact not found")
+                generation = str((parse_qs(parsed.query).get("generation") or [""])[0])
+                self.serve_hls(track_id, name, ticket, generation)
             elif path.startswith("/library-art/"):
                 self.serve_library_art(unquote(path.removeprefix("/library-art/")))
             elif path.startswith("/assets/"):
@@ -2578,6 +2646,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path in {"/api/import/jobs", "/api/v1/imports/jobs"}:
                 body = self.read_json()
                 self.send_json(api_receipt("create_import_job", create_import_job(body), True), HTTPStatus.ACCEPTED)
+            elif path.startswith("/api/audio-copy/"):
+                self.read_json()
+                self.send_json(prepare_audio_copy(unquote(path.removeprefix("/api/audio-copy/"))), HTTPStatus.ACCEPTED)
             elif (path.startswith("/api/import/jobs/") or path.startswith("/api/v1/imports/jobs/")) and path.endswith("/cancel"):
                 prefix = "/api/v1/imports/jobs/" if path.startswith("/api/v1/") else "/api/import/jobs/"
                 job_id = unquote(path.removeprefix(prefix).removesuffix("/cancel").rstrip("/"))
@@ -2965,15 +3036,35 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.send_header("Content-Disposition", f'inline; filename="{html.escape(path.name)}"')
         self.end_headers()
-        with path.open("rb") as file:
-            file.seek(start)
-            remaining = length
-            while remaining > 0:
-                chunk = file.read(min(1024 * 1024, remaining))
-                if not chunk:
-                    break
-                self.wfile.write(chunk)
-                remaining -= len(chunk)
+        try:
+            with path.open("rb") as file:
+                file.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = file.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            # Browsers cancel the prior range request whenever the user seeks.
+            return
+
+    def serve_hls(self, track_id: str, name: str, ticket: str, generation: str) -> None:
+        path, content_type = streaming.artifact(track_id, name)
+        if name == "stream.m3u8":
+            data = streaming.manifest_with_ticket(path, ticket, generation)
+            cache_control = "private, no-cache"
+        else:
+            data = path.read_bytes()
+            cache_control = "private, max-age=31536000, immutable"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", cache_control)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def serve_library_art(self, relative_path: str) -> None:
         path = (LIBRARY_DIR / relative_path).resolve()
