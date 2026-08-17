@@ -454,12 +454,27 @@
       alignHlsPair(target, { resume: true });
     }
   });
-  const recoverBufferedHlsPair = () => {
+  const recoverBufferedHlsPair = async () => {
     if (!videoSourceIsHls || hlsAligning || audio.paused || video.paused) return;
-    const target = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
-    // If either half buffers, pause both clocks and resume only after the
-    // browser can render and play them from the same native-HLS position.
-    alignHlsPair(target, { resume: true });
+    const revision = sourceRevision;
+    const token = ++hlsAlignmentToken;
+    hlsAligning = true;
+    audio.pause();
+    video.pause();
+    // Do not hard-seek the HLS element during a transient stall: doing so can
+    // snap it back to the same segment. Let its buffered frame settle, move
+    // only the direct audio clock to that frame, then resume the pair.
+    await new Promise(resolve => window.setTimeout(resolve, 250));
+    if (token !== hlsAlignmentToken || revision !== sourceRevision) return;
+    const aligned = Number.isFinite(video.currentTime) ? video.currentTime : audio.currentTime;
+    try { audio.currentTime = Math.max(0, aligned); } catch (_) {}
+    const audioReady = await waitUntilPlayable(audio, token, revision);
+    if (!audioReady || token !== hlsAlignmentToken || revision !== sourceRevision) {
+      if (token === hlsAlignmentToken) hlsAligning = false;
+      return;
+    }
+    await Promise.allSettled([audio.play(), video.play()]);
+    if (token === hlsAlignmentToken) hlsAligning = false;
   };
   audio.addEventListener("waiting", recoverBufferedHlsPair);
   video.addEventListener("waiting", recoverBufferedHlsPair);
