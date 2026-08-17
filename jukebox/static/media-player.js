@@ -61,6 +61,7 @@
   let refreshInFlight = false;
   let videoSourceIsHls = false;
   let sourceRevision = 0;
+  let hlsStartupSyncPending = false;
   let videoScrubbing = false;
   const audioCopyStarted = new Set();
   const audioCopyRefreshed = new Set();
@@ -118,6 +119,7 @@
       const position = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
       const revision = ++sourceRevision;
       videoSourceIsHls = useNativeHls;
+      hlsStartupSyncPending = useNativeHls;
       video.dataset.source = selected;
       video.src = selected;
       video.load();
@@ -144,6 +146,7 @@
       video.removeAttribute("src");
       video.dataset.source = "";
       videoSourceIsHls = false;
+      hlsStartupSyncPending = false;
       sourceRevision += 1;
       video.load();
       streamDetails = null;
@@ -221,7 +224,15 @@
       // traps playback in the first segment, so use gentle rate correction and reserve
       // hard synchronization for initial load and explicit user seeks.
       if (!video.seeking && video.readyState >= 2 && Number.isFinite(drift)) {
-        video.playbackRate = Math.abs(drift) < 0.18 ? 1 : (drift > 0 ? 0.96 : 1.04);
+        // A native HLS element can report ready before its media clock starts.
+        // Let it decode a real frame, then perform exactly one startup catch-up.
+        // This avoids both a multi-second A/V offset and the old repeated seek loop.
+        if (hlsStartupSyncPending && Math.abs(drift) < 1) hlsStartupSyncPending = false;
+        else if (hlsStartupSyncPending && video.currentTime > 0.2 && Math.abs(drift) >= 1) {
+          hlsStartupSyncPending = false;
+          seekVideo(audio.currentTime);
+        }
+        video.playbackRate = Math.abs(drift) < 0.18 ? 1 : (drift > 0 ? 0.96 : (Math.abs(drift) > 1 ? 1.12 : 1.04));
       }
     } else if (!Number.isFinite(drift) || Math.abs(drift) > 0.75) {
       seekVideo(audio.currentTime);
