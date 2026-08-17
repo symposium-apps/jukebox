@@ -249,8 +249,9 @@
     if (!duration) return;
     const bounded = Math.max(0, Math.min(target, duration));
     try {
-      if (typeof audio.fastSeek === "function") audio.fastSeek(bounded);
-      else audio.currentTime = bounded;
+      // Chromium can leave a remote MP4 at HAVE_METADATA indefinitely after
+      // fastSeek(). Assigning currentTime triggers the required byte-range fetch.
+      audio.currentTime = bounded;
     } catch (_) { return; }
     state.playback.position = bounded;
     seekVideo(bounded);
@@ -288,8 +289,7 @@
     cancelAnimationFrame(pendingSeekFrame);
     pendingSeekFrame = requestAnimationFrame(() => {
       try {
-        if (typeof audio.fastSeek === "function") audio.fastSeek(target);
-        else audio.currentTime = target;
+        audio.currentTime = target;
       } catch (_) {}
       state.playback.position = target;
       syncVideoClock(true);
