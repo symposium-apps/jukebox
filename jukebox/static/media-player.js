@@ -8,13 +8,27 @@
   stage.className = "video-stage";
   stage.hidden = true;
   stage.setAttribute("aria-label", "Video player");
+  // The complete visual player is deliberately owned by this isolated module.
+  // Product pages provide only the audio transport and the insertion point.
   stage.innerHTML = `
     <header class="video-stage-head">
-      <div class="video-stage-copy"><b id="videoTitle">Video</b><span id="videoMeta">Preparing player</span></div>
-      <div class="video-stage-actions">
-        <button id="audioOnlyBtn" type="button">Audio only</button>
-        <button id="videoFullscreenBtn" type="button">Full screen</button>
-        <button id="videoHideBtn" type="button">Hide</button>
+      <div class="video-stage-copy">
+        <span class="video-stage-kicker">Now playing</span>
+        <b id="videoTitle">Video</b>
+        <span id="videoMeta">Preparing player</span>
+      </div>
+      <div class="video-stage-actions" aria-label="Video options">
+        <button id="audioOnlyBtn" type="button" aria-label="Switch to audio only" title="Switch to audio only">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14v-4a8 8 0 0 1 16 0v4"/><path d="M4 14h3v6H5a2 2 0 0 1-2-2v-2a2 2 0 0 1 1-2Z"/><path d="M20 14h-3v6h2a2 2 0 0 0 2-2v-2a2 2 0 0 0-1-2Z"/></svg>
+          <span class="video-action-label">Audio</span>
+        </button>
+        <button id="videoFullscreenBtn" type="button" aria-label="Enter full screen" title="Full screen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5"/><path d="m3 3 6 6"/><path d="M16 3h5v5"/><path d="m21 3-6 6"/><path d="M8 21H3v-5"/><path d="m3 21 6-6"/><path d="M16 21h5v-5"/><path d="m21 21-6-6"/></svg>
+          <span class="video-action-label">Expand</span>
+        </button>
+        <button id="videoHideBtn" class="video-action-icon-only" type="button" aria-label="Hide video" title="Hide video">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12"/><path d="m18 6-12 12"/></svg>
+        </button>
       </div>
     </header>
     <div class="video-frame">
@@ -22,15 +36,21 @@
       <span id="videoStreamBadge" class="video-frame-overlay"><i></i><span>Preparing stream</span></span>
     </div>
     <footer class="video-transport" aria-label="Video playback controls">
-      <div class="video-transport-buttons">
-        <button id="videoRewindBtn" type="button" aria-label="Rewind 10 seconds" title="Rewind 10 seconds">−10</button>
-        <button id="videoPlayPauseBtn" class="video-play-pause" type="button" aria-label="Pause" title="Play or pause">Pause</button>
-        <button id="videoForwardBtn" type="button" aria-label="Forward 10 seconds" title="Forward 10 seconds">+10</button>
-      </div>
       <div class="video-progress">
         <span id="videoElapsedText">0:00</span>
         <input id="videoScrubSlider" type="range" min="0" max="1000" value="0" step="1" aria-label="Video position" disabled>
         <span id="videoDurationText">0:00</span>
+      </div>
+      <div class="video-transport-buttons">
+        <button id="videoRewindBtn" class="video-seek-control" type="button" aria-label="Rewind 10 seconds" title="Rewind 10 seconds">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V3m0 0h5M4 3l4 4"/><path d="M5.4 10a8 8 0 1 0 2-3"/></svg><span class="video-seek-value">10</span>
+        </button>
+        <button id="videoPlayPauseBtn" class="video-play-pause" type="button" aria-label="Pause" title="Play or pause">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h3v14H8zM14 5h3v14h-3z"/></svg>
+        </button>
+        <button id="videoForwardBtn" class="video-seek-control" type="button" aria-label="Forward 10 seconds" title="Forward 10 seconds">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8V3m0 0h-5m5 0-4 4"/><path d="M18.6 10a8 8 0 1 1-2-3"/></svg><span class="video-seek-value">10</span>
+        </button>
       </div>
     </footer>`;
   playerbar.insertAdjacentElement("beforebegin", stage);
@@ -45,12 +65,16 @@
   extra.insertAdjacentElement("afterbegin", streamState);
   const showVideo = document.createElement("button");
   showVideo.id = "showVideoBtn";
-  showVideo.className = "control-button video-return-control";
+  showVideo.className = "video-return-control";
   showVideo.type = "button";
-  showVideo.title = "Show video";
-  showVideo.innerHTML = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="12" rx="2"/><path d="M9 21h6"/><path d="M12 17v4"/></svg><span>Show video</span>';
+  showVideo.title = "Return to video";
+  showVideo.setAttribute("aria-label", "Return to video");
+  showVideo.innerHTML = `
+    <span class="video-return-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="13" rx="3"/><path d="m10 9 5 2.5-5 2.5Z"/></svg></span>
+    <span class="video-return-copy"><strong>Return to video</strong><span id="showVideoTrack">Open the player</span></span>
+    <span class="video-return-chevron"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span>`;
   showVideo.hidden = true;
-  qs("nextBtn").insertAdjacentElement("afterend", showVideo);
+  document.body.appendChild(showVideo);
 
   let stageTrackId = "";
   let stageCollapsed = false;
@@ -169,9 +193,12 @@
     stage.hidden = stageCollapsed;
     showVideo.hidden = !stageCollapsed;
     qs("videoTitle").textContent = track.name || track.filename || "Video";
+    qs("showVideoTrack").textContent = track.name || track.filename || "Open the player";
     const audioCopy = matchingAudio(track);
-    qs("audioOnlyBtn").disabled = !audioCopy;
-    qs("audioOnlyBtn").textContent = audioCopy ? "Audio only" : "Audio copy preparing";
+    const audioOnly = qs("audioOnlyBtn");
+    audioOnly.disabled = !audioCopy;
+    audioOnly.title = audioCopy ? "Switch to audio only" : "Audio copy preparing";
+    audioOnly.setAttribute("aria-label", audioOnly.title);
     renderStreamState();
     if (!force && streamDetails && Date.now() - lastStreamCheck < 1200) {
       setVideoSource(track, streamDetails);
@@ -338,7 +365,9 @@
     stageSlider.style.setProperty("--seek", `${duration ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0}%`);
     const paused = audio.paused;
     const playPause = qs("videoPlayPauseBtn");
-    playPause.textContent = paused ? "Play" : "Pause";
+    playPause.innerHTML = paused
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h3v14H8zM14 5h3v14h-3z"/></svg>';
     playPause.setAttribute("aria-label", paused ? "Play" : "Pause");
     qs("videoRewindBtn").disabled = !duration;
     qs("videoForwardBtn").disabled = !duration;
