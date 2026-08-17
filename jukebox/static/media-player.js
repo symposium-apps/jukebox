@@ -284,10 +284,14 @@
     if (force) {
       seekVideo(audio.currentTime);
     } else if (videoSourceIsHls) {
-      // Native HLS seeks may snap to a segment/keyframe. Re-seeking every clock tick
+      // Repeated currentTime assignments on native HLS snap to segment boundaries and
       // traps playback in the first segment, so use gentle rate correction and reserve
       // hard synchronization for initial load and explicit user seeks.
       if (!video.seeking && video.readyState >= 2 && Number.isFinite(drift)) {
+        if (Math.abs(drift) > 1 && !hlsAligning && !audio.paused && !video.paused) {
+          recoverBufferedHlsPair();
+          return;
+        }
         video.playbackRate = Math.abs(drift) < 0.18 ? 1 : (drift > 0 ? 0.96 : (Math.abs(drift) > 1 ? 1.12 : 1.04));
       }
     } else if (!Number.isFinite(drift) || Math.abs(drift) > 0.75) {
