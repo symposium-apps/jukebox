@@ -221,7 +221,9 @@
   }
 
   function waitUntilPlayable(element, token, revision, timeout = 30000) {
-    if (element.readyState >= 3 && !element.seeking) return Promise.resolve(true);
+    // Remote native HLS commonly remains at HAVE_CURRENT_DATA (2) until play()
+    // is called. Requiring HAVE_FUTURE_DATA here deadlocks that transition.
+    if (element.readyState >= 2 && !element.seeking) return Promise.resolve(true);
     return new Promise(resolve => {
       let timer = 0;
       const finish = value => {
@@ -233,7 +235,7 @@
       };
       const check = () => {
         if (token !== hlsAlignmentToken || revision !== sourceRevision) finish(false);
-        else if (element.readyState >= 3 && !element.seeking) finish(true);
+        else if (element.readyState >= 2 && !element.seeking) finish(true);
       };
       element.addEventListener("canplay", check);
       element.addEventListener("seeked", check);
@@ -252,13 +254,19 @@
     try { audio.currentTime = Math.max(0, target); } catch (_) {}
     seekVideo(target);
     const videoReady = await waitUntilPlayable(video, token, revision);
-    if (!videoReady || token !== hlsAlignmentToken || revision !== sourceRevision) return false;
+    if (!videoReady || token !== hlsAlignmentToken || revision !== sourceRevision) {
+      if (token === hlsAlignmentToken) hlsAligning = false;
+      return false;
+    }
     // Native HLS may settle on a nearby keyframe. Align the paused audio clock
     // to the frame the browser can actually render before starting either one.
     const aligned = Number.isFinite(video.currentTime) ? video.currentTime : target;
     try { audio.currentTime = Math.max(0, aligned); } catch (_) {}
     const audioReady = await waitUntilPlayable(audio, token, revision);
-    if (!audioReady || token !== hlsAlignmentToken || revision !== sourceRevision) return false;
+    if (!audioReady || token !== hlsAlignmentToken || revision !== sourceRevision) {
+      if (token === hlsAlignmentToken) hlsAligning = false;
+      return false;
+    }
     hlsAligning = false;
     if (resume) {
       await Promise.allSettled([audio.play(), video.play()]);
