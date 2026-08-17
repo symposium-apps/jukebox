@@ -267,11 +267,14 @@
       if (token === hlsAlignmentToken) hlsAligning = false;
       return false;
     }
-    hlsAligning = false;
     if (resume) {
       await Promise.allSettled([audio.play(), video.play()]);
+      // Keep the recovery guard active through the first successful play turn;
+      // native HLS can emit `waiting` synchronously from play().
+      if (token === hlsAlignmentToken) hlsAligning = false;
       return !audio.paused && !video.paused;
     }
+    hlsAligning = false;
     return true;
   }
 
@@ -451,5 +454,14 @@
       alignHlsPair(target, { resume: true });
     }
   });
+  const recoverBufferedHlsPair = () => {
+    if (!videoSourceIsHls || hlsAligning || audio.paused || video.paused) return;
+    const target = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    // If either half buffers, pause both clocks and resume only after the
+    // browser can render and play them from the same native-HLS position.
+    alignHlsPair(target, { resume: true });
+  };
+  audio.addEventListener("waiting", recoverBufferedHlsPair);
+  video.addEventListener("waiting", recoverBufferedHlsPair);
   renderSeekFill();
 })();
