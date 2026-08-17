@@ -61,7 +61,9 @@
   let refreshInFlight = false;
   let videoSourceIsHls = false;
   let sourceRevision = 0;
-  let hlsStartupSyncPending = false;
+  let hlsAlignmentToken = 0;
+  let hlsAligning = false;
+  let resumeAfterVideoScrub = false;
   let videoScrubbing = false;
   const audioCopyStarted = new Set();
   const audioCopyRefreshed = new Set();
@@ -117,21 +119,23 @@
     qs("videoMeta").textContent = `${track.artist || "Unknown artist"} · ${mode}`;
     if (video.dataset.source !== selected) {
       const position = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+      const shouldResume = !audio.paused;
       const revision = ++sourceRevision;
       videoSourceIsHls = useNativeHls;
-      hlsStartupSyncPending = useNativeHls;
+      if (useNativeHls && shouldResume) {
+        audio.pause();
+        video.pause();
+      }
       video.dataset.source = selected;
       video.src = selected;
       video.load();
       video.addEventListener("loadedmetadata", () => {
         if (revision !== sourceRevision) return;
-        if (position > 0 && Number.isFinite(video.duration)) seekVideo(position);
-        video.addEventListener("canplay", () => {
-          if (revision !== sourceRevision || position <= 0) return;
-          const target = Number.isFinite(audio.currentTime) ? audio.currentTime : position;
-          if (!Number.isFinite(video.currentTime) || Math.abs(video.currentTime - target) > 1) seekVideo(target);
-        }, { once: true });
-        if (!audio.paused) video.play().catch(() => {});
+        if (useNativeHls) alignHlsPair(position, { resume: shouldResume, revision });
+        else {
+          if (position > 0 && Number.isFinite(video.duration)) seekVideo(position);
+          if (!audio.paused) video.play().catch(() => {});
+        }
       }, { once: true });
     }
   }
@@ -146,7 +150,9 @@
       video.removeAttribute("src");
       video.dataset.source = "";
       videoSourceIsHls = false;
-      hlsStartupSyncPending = false;
+      hlsAlignmentToken += 1;
+      hlsAligning = false;
+      resumeAfterVideoScrub = false;
       sourceRevision += 1;
       video.load();
       streamDetails = null;
@@ -214,6 +220,53 @@
     } catch (_) {}
   }
 
+  function waitUntilPlayable(element, token, revision, timeout = 30000) {
+    if (element.readyState >= 3 && !element.seeking) return Promise.resolve(true);
+    return new Promise(resolve => {
+      let timer = 0;
+      const finish = value => {
+        clearTimeout(timer);
+        element.removeEventListener("canplay", check);
+        element.removeEventListener("seeked", check);
+        element.removeEventListener("loadeddata", check);
+        resolve(value);
+      };
+      const check = () => {
+        if (token !== hlsAlignmentToken || revision !== sourceRevision) finish(false);
+        else if (element.readyState >= 3 && !element.seeking) finish(true);
+      };
+      element.addEventListener("canplay", check);
+      element.addEventListener("seeked", check);
+      element.addEventListener("loadeddata", check);
+      timer = window.setTimeout(() => finish(false), timeout);
+      check();
+    });
+  }
+
+  async function alignHlsPair(target, { resume = false, revision = sourceRevision } = {}) {
+    if (!videoSourceIsHls || revision !== sourceRevision || !Number.isFinite(target)) return false;
+    const token = ++hlsAlignmentToken;
+    hlsAligning = true;
+    audio.pause();
+    video.pause();
+    try { audio.currentTime = Math.max(0, target); } catch (_) {}
+    seekVideo(target);
+    const videoReady = await waitUntilPlayable(video, token, revision);
+    if (!videoReady || token !== hlsAlignmentToken || revision !== sourceRevision) return false;
+    // Native HLS may settle on a nearby keyframe. Align the paused audio clock
+    // to the frame the browser can actually render before starting either one.
+    const aligned = Number.isFinite(video.currentTime) ? video.currentTime : target;
+    try { audio.currentTime = Math.max(0, aligned); } catch (_) {}
+    const audioReady = await waitUntilPlayable(audio, token, revision);
+    if (!audioReady || token !== hlsAlignmentToken || revision !== sourceRevision) return false;
+    hlsAligning = false;
+    if (resume) {
+      await Promise.allSettled([audio.play(), video.play()]);
+      return !audio.paused && !video.paused;
+    }
+    return true;
+  }
+
   function syncVideoClock(force = false) {
     if (!isVideo(currentTrack()) || !video.currentSrc || !Number.isFinite(audio.currentTime)) return;
     const drift = Number.isFinite(video.currentTime) ? video.currentTime - audio.currentTime : Infinity;
@@ -224,14 +277,6 @@
       // traps playback in the first segment, so use gentle rate correction and reserve
       // hard synchronization for initial load and explicit user seeks.
       if (!video.seeking && video.readyState >= 2 && Number.isFinite(drift)) {
-        // A native HLS element can report ready before its media clock starts.
-        // Let it decode a real frame, then perform exactly one startup catch-up.
-        // This avoids both a multi-second A/V offset and the old repeated seek loop.
-        if (hlsStartupSyncPending && Math.abs(drift) < 1) hlsStartupSyncPending = false;
-        else if (hlsStartupSyncPending && video.currentTime > 0.2 && Math.abs(drift) >= 1) {
-          hlsStartupSyncPending = false;
-          seekVideo(audio.currentTime);
-        }
         video.playbackRate = Math.abs(drift) < 0.18 ? 1 : (drift > 0 ? 0.96 : (Math.abs(drift) > 1 ? 1.12 : 1.04));
       }
     } else if (!Number.isFinite(drift) || Math.abs(drift) > 0.75) {
@@ -248,13 +293,21 @@
     const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
     if (!duration) return;
     const bounded = Math.max(0, Math.min(target, duration));
+    const wasPlaying = !audio.paused;
+    if (videoSourceIsHls && videoScrubbing) {
+      resumeAfterVideoScrub = resumeAfterVideoScrub || wasPlaying;
+      hlsAlignmentToken += 1;
+      audio.pause();
+      video.pause();
+    }
     try {
       // Chromium can leave a remote MP4 at HAVE_METADATA indefinitely after
       // fastSeek(). Assigning currentTime triggers the required byte-range fetch.
       audio.currentTime = bounded;
     } catch (_) { return; }
     state.playback.position = bounded;
-    seekVideo(bounded);
+    if (videoSourceIsHls && wasPlaying && !videoScrubbing) alignHlsPair(bounded, { resume: true });
+    else seekVideo(bounded);
     updateVideoTransport();
     if (commit) saveBrowserPlayback(true);
   }
@@ -316,7 +369,11 @@
   });
 
   video.addEventListener("click", () => qs("playPauseBtn").click());
-  qs("videoPlayPauseBtn").addEventListener("click", () => qs("playPauseBtn").click());
+  qs("videoPlayPauseBtn").addEventListener("click", () => {
+    if (!audio.paused) qs("playPauseBtn").click();
+    else if (videoSourceIsHls) alignHlsPair(audio.currentTime, { resume: true });
+    else qs("playPauseBtn").click();
+  });
   qs("videoRewindBtn").addEventListener("click", () => seekAudio((audio.currentTime || 0) - 10, { commit: true }));
   qs("videoForwardBtn").addEventListener("click", () => seekAudio((audio.currentTime || 0) + 10, { commit: true }));
   const videoSlider = qs("videoScrubSlider");
@@ -336,6 +393,10 @@
     saveBrowserPlayback(true);
     updateScrubber();
     updateVideoTransport();
+    if (resumeAfterVideoScrub && videoSourceIsHls) {
+      resumeAfterVideoScrub = false;
+      alignHlsPair(audio.currentTime, { resume: true });
+    }
   };
   videoSlider.addEventListener("pointerup", commitVideoSeek);
   videoSlider.addEventListener("pointercancel", commitVideoSeek);
@@ -375,5 +436,12 @@
       updateVideoTransport();
     }
   }, 500);
+  audio.addEventListener("play", () => {
+    if (videoSourceIsHls && !hlsAligning && (video.seeking || video.readyState < 3)) {
+      const target = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+      audio.pause();
+      alignHlsPair(target, { resume: true });
+    }
+  });
   renderSeekFill();
 })();
