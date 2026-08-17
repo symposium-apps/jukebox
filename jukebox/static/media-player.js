@@ -124,6 +124,11 @@
       video.addEventListener("loadedmetadata", () => {
         if (revision !== sourceRevision) return;
         if (position > 0 && Number.isFinite(video.duration)) seekVideo(position);
+        video.addEventListener("canplay", () => {
+          if (revision !== sourceRevision || position <= 0) return;
+          const target = Number.isFinite(audio.currentTime) ? audio.currentTime : position;
+          if (!Number.isFinite(video.currentTime) || Math.abs(video.currentTime - target) > 1) seekVideo(target);
+        }, { once: true });
         if (!audio.paused) video.play().catch(() => {});
       }, { once: true });
     }
@@ -198,7 +203,10 @@
     const duration = Number.isFinite(video.duration) ? video.duration : target;
     const bounded = Math.max(0, Math.min(target, Math.max(0, duration - 0.05)));
     try {
-      if (typeof video.fastSeek === "function") video.fastSeek(bounded);
+      // Native HLS implementations can silently ignore fastSeek before their
+      // seekable ranges settle. An explicit currentTime assignment is queued
+      // correctly and is also what user-driven HLS seeking expects.
+      if (!videoSourceIsHls && typeof video.fastSeek === "function") video.fastSeek(bounded);
       else video.currentTime = bounded;
     } catch (_) {}
   }
