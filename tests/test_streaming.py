@@ -40,6 +40,8 @@ class StreamingTest(unittest.TestCase):
             manifest, content_type = streaming.artifact(track_id, "stream.m3u8")
             self.assertEqual(content_type, "application/vnd.apple.mpegurl")
             segment = sorted(manifest.parent.glob("segment-*.ts"))[0]
+            _, segment_content_type = streaming.artifact(track_id, segment.name)
+            self.assertEqual(segment_content_type, "video/mp2t")
             probe = subprocess.run(
                 ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height", "-of", "csv=p=0", str(segment)],
                 check=True,

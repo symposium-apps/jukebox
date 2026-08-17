@@ -20,7 +20,19 @@
     <div class="video-frame">
       <video id="webVideo" preload="metadata" playsinline muted></video>
       <span id="videoStreamBadge" class="video-frame-overlay"><i></i><span>Preparing stream</span></span>
-    </div>`;
+    </div>
+    <footer class="video-transport" aria-label="Video playback controls">
+      <div class="video-transport-buttons">
+        <button id="videoRewindBtn" type="button" aria-label="Rewind 10 seconds" title="Rewind 10 seconds">−10</button>
+        <button id="videoPlayPauseBtn" class="video-play-pause" type="button" aria-label="Pause" title="Play or pause">Pause</button>
+        <button id="videoForwardBtn" type="button" aria-label="Forward 10 seconds" title="Forward 10 seconds">+10</button>
+      </div>
+      <div class="video-progress">
+        <span id="videoElapsedText">0:00</span>
+        <input id="videoScrubSlider" type="range" min="0" max="1000" value="0" step="1" aria-label="Video position" disabled>
+        <span id="videoDurationText">0:00</span>
+      </div>
+    </footer>`;
   playerbar.insertAdjacentElement("beforebegin", stage);
 
   const video = qs("webVideo");
@@ -47,6 +59,9 @@
   let lastStreamCheck = 0;
   let streamDetails = null;
   let refreshInFlight = false;
+  let videoSourceIsHls = false;
+  let sourceRevision = 0;
+  let videoScrubbing = false;
   const audioCopyStarted = new Set();
   const audioCopyRefreshed = new Set();
 
@@ -90,7 +105,8 @@
 
   function setVideoSource(track, details) {
     const canNativeHls = !!video.canPlayType("application/vnd.apple.mpegurl");
-    const selected = details?.ready && details.hls_url && canNativeHls
+    const useNativeHls = !!(details?.ready && details.hls_url && canNativeHls);
+    const selected = useNativeHls
       ? ticketed(details.hls_url)
       : mediaUrl(track.id);
     const mode = details?.ready ? (canNativeHls ? "HLS stream ready" : "HLS ready · direct playback") : "Preparing HLS stream · direct playback";
@@ -100,11 +116,14 @@
     qs("videoMeta").textContent = `${track.artist || "Unknown artist"} · ${mode}`;
     if (video.dataset.source !== selected) {
       const position = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+      const revision = ++sourceRevision;
+      videoSourceIsHls = useNativeHls;
       video.dataset.source = selected;
       video.src = selected;
       video.load();
       video.addEventListener("loadedmetadata", () => {
-        if (position > 0 && Number.isFinite(video.duration)) video.currentTime = Math.min(position, Math.max(0, video.duration - 0.05));
+        if (revision !== sourceRevision) return;
+        if (position > 0 && Number.isFinite(video.duration)) seekVideo(position);
         if (!audio.paused) video.play().catch(() => {});
       }, { once: true });
     }
@@ -119,6 +138,8 @@
       video.pause();
       video.removeAttribute("src");
       video.dataset.source = "";
+      videoSourceIsHls = false;
+      sourceRevision += 1;
       video.load();
       streamDetails = null;
       lastStreamCheck = 0;
@@ -172,13 +193,67 @@
     }
   }
 
+  function seekVideo(target) {
+    if (!Number.isFinite(target) || !video.currentSrc) return;
+    const duration = Number.isFinite(video.duration) ? video.duration : target;
+    const bounded = Math.max(0, Math.min(target, Math.max(0, duration - 0.05)));
+    try {
+      if (typeof video.fastSeek === "function") video.fastSeek(bounded);
+      else video.currentTime = bounded;
+    } catch (_) {}
+  }
+
   function syncVideoClock(force = false) {
     if (!isVideo(currentTrack()) || !video.currentSrc || !Number.isFinite(audio.currentTime)) return;
-    if (force || !Number.isFinite(video.currentTime) || Math.abs(video.currentTime - audio.currentTime) > 0.35) {
-      try { video.currentTime = audio.currentTime; } catch (_) {}
+    const drift = Number.isFinite(video.currentTime) ? video.currentTime - audio.currentTime : Infinity;
+    if (force) {
+      seekVideo(audio.currentTime);
+    } else if (videoSourceIsHls) {
+      // Native HLS seeks may snap to a segment/keyframe. Re-seeking every clock tick
+      // traps playback in the first segment, so use gentle rate correction and reserve
+      // hard synchronization for initial load and explicit user seeks.
+      if (!video.seeking && video.readyState >= 2 && Number.isFinite(drift)) {
+        video.playbackRate = Math.abs(drift) < 0.18 ? 1 : (drift > 0 ? 0.96 : 1.04);
+      }
+    } else if (!Number.isFinite(drift) || Math.abs(drift) > 0.75) {
+      seekVideo(audio.currentTime);
     }
-    if (audio.paused) video.pause();
+    if (audio.paused) {
+      video.pause();
+      video.playbackRate = 1;
+    }
     else if (video.paused) video.play().catch(() => {});
+  }
+
+  function seekAudio(target, { commit = false } = {}) {
+    const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+    if (!duration) return;
+    const bounded = Math.max(0, Math.min(target, duration));
+    try {
+      if (typeof audio.fastSeek === "function") audio.fastSeek(bounded);
+      else audio.currentTime = bounded;
+    } catch (_) { return; }
+    state.playback.position = bounded;
+    seekVideo(bounded);
+    updateVideoTransport();
+    if (commit) saveBrowserPlayback(true);
+  }
+
+  function updateVideoTransport(previewTime = null) {
+    const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+    const current = previewTime === null ? (Number.isFinite(audio.currentTime) ? audio.currentTime : 0) : previewTime;
+    const stageSlider = qs("videoScrubSlider");
+    qs("videoElapsedText").textContent = fmtTime(current);
+    qs("videoDurationText").textContent = fmtTime(duration);
+    stageSlider.disabled = !duration;
+    if (!videoScrubbing) stageSlider.value = duration ? String(Math.round((current / duration) * 1000)) : "0";
+    stageSlider.style.setProperty("--seek", `${duration ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0}%`);
+    const paused = audio.paused;
+    const playPause = qs("videoPlayPauseBtn");
+    playPause.textContent = paused ? "Play" : "Pause";
+    playPause.setAttribute("aria-label", paused ? "Play" : "Pause");
+    qs("videoRewindBtn").disabled = !duration;
+    qs("videoForwardBtn").disabled = !duration;
   }
 
   const slider = qs("scrubSlider");
@@ -216,11 +291,36 @@
       if (eventName === "play" || eventName === "pause") syncVideoClock();
       renderSeekFill();
       renderStreamState();
+      updateVideoTransport();
       refreshVideoSurface().catch(() => {});
     });
   });
 
   video.addEventListener("click", () => qs("playPauseBtn").click());
+  qs("videoPlayPauseBtn").addEventListener("click", () => qs("playPauseBtn").click());
+  qs("videoRewindBtn").addEventListener("click", () => seekAudio((audio.currentTime || 0) - 10, { commit: true }));
+  qs("videoForwardBtn").addEventListener("click", () => seekAudio((audio.currentTime || 0) + 10, { commit: true }));
+  const videoSlider = qs("videoScrubSlider");
+  videoSlider.addEventListener("pointerdown", () => { videoScrubbing = true; });
+  videoSlider.addEventListener("input", event => {
+    videoScrubbing = true;
+    const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+    if (!duration) return;
+    const target = duration * (Number(event.target.value) / 1000);
+    seekAudio(target);
+    updateVideoTransport(target);
+  });
+  const commitVideoSeek = () => {
+    if (!videoScrubbing) return;
+    videoScrubbing = false;
+    state.playback.position = Number(audio.currentTime || 0);
+    saveBrowserPlayback(true);
+    updateScrubber();
+    updateVideoTransport();
+  };
+  videoSlider.addEventListener("pointerup", commitVideoSeek);
+  videoSlider.addEventListener("pointercancel", commitVideoSeek);
+  videoSlider.addEventListener("change", commitVideoSeek);
   qs("videoHideBtn").addEventListener("click", () => {
     stageCollapsed = true;
     stage.hidden = true;
@@ -244,13 +344,17 @@
   render = function renderWithMediaPlayer() {
     originalRender();
     renderStreamState();
+    updateVideoTransport();
     refreshVideoSurface().catch(() => {});
     document.querySelectorAll(".track-kind").forEach(badge => badge.classList.toggle("video", badge.textContent.trim().toLowerCase() === "mp4"));
   };
 
   window.setInterval(() => {
     renderStreamState();
-    if (isVideo(currentTrack())) syncVideoClock();
+    if (isVideo(currentTrack())) {
+      syncVideoClock();
+      updateVideoTransport();
+    }
   }, 500);
   renderSeekFill();
 })();

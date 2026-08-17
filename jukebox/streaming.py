@@ -136,7 +136,14 @@ def artifact(track_id: str, name: str) -> tuple[Path, str]:
     path = (_track_dir(track_id) / name).resolve()
     if not path.is_file() or not path.is_relative_to(_track_dir(track_id).resolve()):
         raise KeyError("Stream artifact not found")
-    content_type = "application/vnd.apple.mpegurl" if path.suffix == ".m3u8" else mimetypes.guess_type(path.name)[0] or "video/mp2t"
+    if path.suffix == ".m3u8":
+        content_type = "application/vnd.apple.mpegurl"
+    elif path.suffix == ".ts":
+        # Linux distributions may register .ts as a Qt translation file. HLS
+        # transport-stream segments must use the media type browsers expect.
+        content_type = "video/mp2t"
+    else:
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return path, content_type
 
 
