@@ -1867,7 +1867,11 @@ def parse_m3u_playlist(path: Path) -> dict[str, object]:
 
 
 def write_m3u_playlist(name: str, slug: str, track_ids: list[str], cover: str = "", cover_lcd: str = "") -> dict[str, object]:
-    valid = tracks_by_id()
+    # Creating an empty playlist must stay instant. In a large library,
+    # rebuilding the complete track index here can take long enough for a
+    # mobile PWA submission to look like a dead button. Only resolve the
+    # library when there are track IDs to validate.
+    valid = tracks_by_id() if track_ids else {}
     clean_ids = [str(track_id) for track_id in track_ids if str(track_id) in valid]
     title = name.strip() or slug.replace("_", " ")
     lines = ["#EXTM3U", f"#PLAYLIST: {title}"]
@@ -1880,7 +1884,9 @@ def write_m3u_playlist(name: str, slug: str, track_ids: list[str], cover: str = 
     old_json = PLAYLIST_DIR / f"{slug}.json"
     if old_json.exists():
         old_json.unlink()
-    playlist = parse_m3u_playlist(path)
+    # There is no artwork or track metadata to derive for a brand-new empty
+    # playlist, so do not re-enter parse_m3u_playlist (which scans the library).
+    playlist = parse_m3u_playlist(path) if clean_ids else {}
     return {
         "name": title,
         "slug": slug,

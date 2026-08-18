@@ -956,6 +956,12 @@
       font-size: 13px;
     }
 
+    .modal-card .modal-status {
+      min-height: 20px;
+      color: #f0abfc;
+      font-weight: 700;
+    }
+
     .modal-card input[type="text"] {
       height: 44px;
       border: 1px solid var(--line-2);
@@ -3127,17 +3133,18 @@
   </footer>
 
   <div class="modal" id="playlistModal" hidden>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="playlistModalTitle">
+    <form class="modal-card" id="playlistForm" role="dialog" aria-modal="true" aria-labelledby="playlistModalTitle">
       <div>
         <h2 id="playlistModalTitle">New Playlist</h2>
         <p>Name the mix. You can add tracks from any album after it exists.</p>
       </div>
-      <input id="playlistNameInput" type="text" maxlength="80" placeholder="Road test mix">
+      <input id="playlistNameInput" type="text" maxlength="80" placeholder="Road test mix" autocomplete="off" required>
+      <p class="modal-status" id="playlistModalStatus" role="status" aria-live="polite"></p>
       <div class="modal-actions">
         <button id="cancelPlaylistBtn" type="button">Cancel</button>
-        <button id="createPlaylistBtn" class="primary" type="button">Create</button>
+        <button id="createPlaylistBtn" class="primary" type="submit">Create</button>
       </div>
-    </div>
+    </form>
   </div>
 </main>
 
@@ -5021,6 +5028,8 @@ function goBack() {
 
 function openPlaylistModal() {
   qs("playlistNameInput").value = "";
+  qs("playlistModalStatus").textContent = "";
+  qs("createPlaylistBtn").disabled = false;
   qs("playlistModal").hidden = false;
   qs("playlistNameInput").focus();
 }
@@ -5032,17 +5041,32 @@ function closePlaylistModal() {
 async function createPlaylistFromModal() {
   const name = qs("playlistNameInput").value.trim();
   if (!name) {
+    qs("playlistModalStatus").textContent = "Enter a playlist name.";
     qs("playlistNameInput").focus();
     return;
   }
-  const result = await api("/api/playlists/save", {
-    method: "POST",
-    body: JSON.stringify({ name, track_ids: [] })
-  });
-  closePlaylistModal();
-  await refresh({ keepMessage: true });
-  setView({ type: "playlist", slug: result.playlist.slug });
-  msg("Playlist created");
+  const button = qs("createPlaylistBtn");
+  const status = qs("playlistModalStatus");
+  button.disabled = true;
+  button.textContent = "Creating…";
+  status.textContent = "Creating playlist…";
+  try {
+    const result = await api("/api/playlists/save", {
+      method: "POST",
+      credentials: "same-origin",
+      body: JSON.stringify({ name, track_ids: [] })
+    });
+    closePlaylistModal();
+    msg("Playlist created");
+    await refresh({ keepMessage: true });
+    setView({ type: "playlist", slug: result.playlist.slug });
+  } catch (error) {
+    status.textContent = error.message || "Playlist could not be created.";
+    qs("playlistNameInput").focus();
+  } finally {
+    button.disabled = false;
+    button.textContent = "Create";
+  }
 }
 
 qs("backBtn").addEventListener("click", goBack);
@@ -5093,12 +5117,11 @@ document.querySelectorAll(".new-playlist-trigger").forEach(button => {
   button.addEventListener("click", openPlaylistModal);
 });
 qs("cancelPlaylistBtn").addEventListener("click", closePlaylistModal);
-qs("createPlaylistBtn").addEventListener("click", () => createPlaylistFromModal().catch(error => msg(error.message)));
+qs("playlistForm").addEventListener("submit", event => {
+  event.preventDefault();
+  createPlaylistFromModal();
+});
 qs("playlistNameInput").addEventListener("keydown", event => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    createPlaylistFromModal().catch(error => msg(error.message));
-  }
   if (event.key === "Escape") closePlaylistModal();
 });
 qs("playlistModal").addEventListener("click", event => {

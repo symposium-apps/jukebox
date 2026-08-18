@@ -105,13 +105,16 @@ class ManagementApiTest(unittest.TestCase):
         self.assertIn(b'<link rel="manifest" href="/manifest.webmanifest">', page)
         self.assertIn(b'<meta name="apple-mobile-web-app-capable" content="yes">', page)
         self.assertIn(b'<meta name="apple-mobile-web-app-title" content="Jukebox">', page)
-        self.assertIn(b'<meta name="jukebox-version" content="1.4.14">', page)
+        self.assertIn(b'<meta name="jukebox-version" content="1.4.15">', page)
         self.assertNotIn(b"__JUKEBOX_VERSION__", page)
-        self.assertIn(b'<link rel="stylesheet" href="/static/link-import.css?v=1.4.14">', page)
-        self.assertIn(b'<link rel="stylesheet" href="/static/media-player.css?v=1.4.14">', page)
-        self.assertIn(b'<script src="/static/link-import.js?v=1.4.14"></script>', page)
-        self.assertIn(b'<script src="/static/logical-media.js?v=1.4.14"></script>', page)
-        self.assertIn(b'<script src="/static/media-player.js?v=1.4.14"></script>', page)
+        self.assertIn(b'<link rel="stylesheet" href="/static/link-import.css?v=1.4.15">', page)
+        self.assertIn(b'<link rel="stylesheet" href="/static/media-player.css?v=1.4.15">', page)
+        self.assertIn(b'<script src="/static/link-import.js?v=1.4.15"></script>', page)
+        self.assertIn(b'<script src="/static/logical-media.js?v=1.4.15"></script>', page)
+        self.assertIn(b'<script src="/static/media-player.js?v=1.4.15"></script>', page)
+        self.assertIn(b'id="playlistForm"', page)
+        self.assertIn(b'id="createPlaylistBtn" class="primary" type="submit"', page)
+        self.assertIn(b'Creating playlist\xe2\x80\xa6', page)
         self.assertIn(b"jukebox-stale-release-reload", page)
         self.assertIn(b'fetch("/_sym/health", { cache: "no-store"', page)
         self.assertIn(b"Responsive transport: never let legacy tablet rules create a clipped second row", page)
@@ -470,6 +473,29 @@ class ManagementApiTest(unittest.TestCase):
 
 
 class StartupCompatibilityTest(unittest.TestCase):
+    def test_empty_playlist_creation_never_scans_the_library(self) -> None:
+        from jukebox import server
+
+        with tempfile.TemporaryDirectory(prefix="jukebox-empty-playlist-") as root:
+            playlist_dir = Path(root) / "Playlists"
+            playlist_dir.mkdir()
+            with (
+                mock.patch.object(server, "PLAYLIST_DIR", playlist_dir),
+                mock.patch.object(server, "tracks_by_id", side_effect=AssertionError("library scan")),
+                mock.patch.object(server, "parse_m3u_playlist", side_effect=AssertionError("playlist reparse")),
+            ):
+                created = server.save_playlist("Phone Mix", [])
+            self.assertTrue(created["ok"])
+            playlist = created["playlist"]
+            self.assertIsInstance(playlist, dict)
+            assert isinstance(playlist, dict)
+            self.assertEqual(playlist["slug"], "Phone_Mix")
+            self.assertEqual(playlist["count"], 0)
+            self.assertEqual(
+                (playlist_dir / "Phone_Mix.m3u8").read_text(encoding="utf-8"),
+                "#EXTM3U\n#PLAYLIST: Phone Mix\n",
+            )
+
     def test_audio_cache_generation_is_stable_and_password_scoped(self) -> None:
         from jukebox import server
 
